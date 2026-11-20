@@ -1,9 +1,12 @@
 import logging
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import router
 from app.config import ensure_dirs, settings
@@ -14,6 +17,7 @@ from app.hub import Hub, MediaMTXClient, MediaMTXError
 from app.worker import worker_loop
 
 log = logging.getLogger(__name__)
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 def create_app() -> FastAPI:
@@ -54,6 +58,16 @@ def create_app() -> FastAPI:
     app.state.hub = hub
     app.include_router(router)
     app.include_router(emulation_router)
+
+    @app.get("/")
+    def home():
+        index = WEB_DIR / "index.html"
+        if not index.is_file():
+            raise HTTPException(404, "guide is not installed")
+        return FileResponse(index)
+
+    if WEB_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app
 
 

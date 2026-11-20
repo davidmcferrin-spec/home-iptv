@@ -63,6 +63,30 @@ With the default `EMBED_WORKER=1`, the API process also runs the verifier.
 
 `tests/fixtures/sample.m3u` is a made-up playlist of non-routable URLs for the parser. It is not a channel lineup.
 
+## Guide
+
+Open `/` in a browser on the LAN. The guide is a dark overlay on the live picture: filter chips, a clock and date, a program info panel, and a channel grid. Arrow keys move the highlight, Enter watches the focused channel, Page Up and Page Down change channel, and the number keys tune a guide number. On a phone the guide collapses to a now-and-next list with a swipeable grid, and tapping a channel plays full screen.
+
+Settings are stored in this browser only (`localStorage`): default country, languages, tags, sort, and the starting channel. Show adult content is a separate control and lasts for the browser session (`sessionStorage`). A new tab starts with adult channels hidden. Adult channels stay out of the grid, the list, search, and counts until that control is on.
+
+If `POST /api/channels/{id}/watch` returns `all tuners busy`, the guide shows "All tuners are busy" and does not open another upstream pull.
+
+## Unraid
+
+Use the Compose Manager plugin and this repository's `docker-compose.yml`. That stack is the app, the verifier, and MediaMTX.
+
+1. Build is done by Compose (`docker compose up --build -d` from a checkout, or point the stack at this directory).
+2. Map `CONFIG_PATH` to `/mnt/user/appdata/home-iptv/config` and `DATA_PATH` to `/mnt/user/appdata/home-iptv/data`.
+3. Set `PUID` and `PGID` (99 and 100 are the usual Unraid values).
+4. Set `PUBLIC_HTTP_BASE`, `PUBLIC_WEBRTC_BASE`, and `PUBLIC_HLS_BASE` to `http://<unraid-ip>` plus ports 8080, 8889, and 8888. Set `WEBRTC_ADDITIONAL_HOST` to that IP so browsers can open the WebRTC UDP port (`WEBRTC_UDP_PORT`, default 8189).
+5. Open `http://<unraid-ip>:8080/`.
+
+HDHomeRun UDP discovery does not cross Docker bridge networking. For discovery of a real tuner, or so Plex, Jellyfin, or Channels can find the optional emulated tuner, run the stack with host networking or a macvlan. Adding a tuner by IP still works on the bridge. Emulation stays off until you enable it in `PATCH /api/settings` or from a client of that API. The guide has no server-side switch for it; set `hdhr_emulation` with the settings API.
+
+`unraid/home-iptv.xml` is a Community Applications template for an image named `home-iptv:latest`. Build that tag on the server before adding the template (`docker build -t home-iptv:latest .`). The template carries the web port, the WebRTC UDP port, `/config`, `/data`, `PUID`, and `PGID`. The compose file is the install that also starts MediaMTX and the worker.
+
+The Dockerfile uses multi-arch base images. `.github/workflows/image.yml` builds `linux/amd64` and `linux/arm64` when you run it by hand. For a local playback fallback, the image copies `hls.js` from npm. A checkout can do the same with `npm ci` and `mkdir -p web/vendor && cp node_modules/hls.js/dist/hls.min.js web/vendor/hls.min.js`.
+
 ## Tests
 
 ```sh

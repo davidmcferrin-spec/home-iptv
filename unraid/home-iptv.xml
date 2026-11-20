@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>HomeIPTV</Name>
+  <Repository>home-iptv:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/davidmcferrin-spec/home-iptv</Support>
+  <Project>https://github.com/davidmcferrin-spec/home-iptv</Project>
+  <Overview>Personal guide and restreamer for playlists and HDHomeRun tuners you are allowed to watch. Build home-iptv:latest on the server, then use docker-compose.yml so MediaMTX and the verifier run with this app. Do not publish the stack to the internet.</Overview>
+  <Category>MediaApp:Video</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Web UI" Target="8080" Default="8080" Mode="tcp" Description="Guide and API" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="WebRTC TCP" Target="8889" Default="8889" Mode="tcp" Description="WHEP signaling. Publish this on the MediaMTX container when using the compose stack." Type="Port" Display="always" Required="false" Mask="false">8889</Config>
+  <Config Name="WebRTC UDP" Target="8189" Default="8189" Mode="udp" Description="WebRTC media. Must be UDP." Type="Port" Display="always" Required="false" Mask="false">8189</Config>
+  <Config Name="LL-HLS" Target="8888" Default="8888" Mode="tcp" Description="Low-latency HLS fallback." Type="Port" Display="always" Required="false" Mask="false">8888</Config>
+  <Config Name="HDHomeRun discovery" Target="65001" Default="65001" Mode="udp" Description="UDP discovery. Use host networking or macvlan if broadcast discovery must work." Type="Port" Display="always" Required="false" Mask="false">65001</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/home-iptv/config" Mode="rw" Description="SQLite index and server settings" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/home-iptv/config</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/home-iptv/data" Mode="rw" Description="Uploaded playlists and stream logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/home-iptv/data</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id for config and data files" Type="Variable" Display="always" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group id for config and data files" Type="Variable" Display="always" Required="true" Mask="false">100</Config>
+  <Config Name="Public HTTP base" Target="PUBLIC_HTTP_BASE" Default="http://127.0.0.1:8080" Mode="" Description="Base URL other LAN devices use to reach the guide and the emulated tuner" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8080</Config>
+  <Config Name="Public WebRTC base" Target="PUBLIC_WEBRTC_BASE" Default="http://127.0.0.1:8889" Mode="" Description="Browser-reachable MediaMTX WebRTC origin" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8889</Config>
+  <Config Name="Public HLS base" Target="PUBLIC_HLS_BASE" Default="http://127.0.0.1:8888" Mode="" Description="Browser-reachable MediaMTX LL-HLS origin" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8888</Config>
+  <Config Name="WebRTC additional host" Target="WEBRTC_ADDITIONAL_HOST" Default="" Mode="" Description="LAN IP advertised to browsers for ICE" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Idle timeout" Target="IDLE_TIMEOUT_SECONDS" Default="60" Mode="" Description="Stop an upstream pull after this many seconds with no viewers" Type="Variable" Display="always" Required="false" Mask="false">60</Config>
+  <Config Name="MediaMTX API" Target="MEDIAMTX_API" Default="http://127.0.0.1:9997" Mode="" Description="Control API of the MediaMTX container" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:9997</Config>
+  <Config Name="MediaMTX RTSP" Target="MEDIAMTX_RTSP" Default="rtsp://127.0.0.1:8554" Mode="" Description="RTSP publish target inside the stack" Type="Variable" Display="always" Required="true" Mask="false">rtsp://127.0.0.1:8554</Config>
+</Container>

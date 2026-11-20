@@ -1,3 +1,9 @@
+FROM node:22-bookworm-slim AS assets
+WORKDIR /src
+COPY package.json package-lock.json ./
+RUN npm ci
+RUN mkdir -p /out && cp node_modules/hls.js/dist/hls.min.js /out/hls.min.js
+
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
@@ -9,6 +15,8 @@ RUN apt-get update \
 WORKDIR /opt/home-iptv
 COPY pyproject.toml README.md ./
 COPY app ./app
+COPY web ./web
+COPY --from=assets /out/hls.min.js ./web/vendor/hls.min.js
 RUN pip install --no-cache-dir .
 
 COPY entrypoint.sh /entrypoint.sh
