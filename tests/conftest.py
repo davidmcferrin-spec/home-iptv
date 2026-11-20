@@ -12,6 +12,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "home-iptv.sqlite"))
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("EMBED_WORKER", "0")
+    monkeypatch.setenv("EMBED_HUB", "0")
     monkeypatch.setenv("EMBED_DISCOVERY", "0")
     from app.main import create_app
 

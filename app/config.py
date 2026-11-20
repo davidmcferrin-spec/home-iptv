@@ -10,6 +10,7 @@ class Settings:
     host: str
     port: int
     embed_worker: bool
+    embed_hub: bool
     embed_discovery: bool
     verify_concurrency: int
     verify_timeout_seconds: int
@@ -50,6 +51,7 @@ def settings() -> Settings:
         host=os.environ.get("HOST", "0.0.0.0"),
         port=_int("PORT", 8080),
         embed_worker=_bool("EMBED_WORKER", True),
+        embed_hub=_bool("EMBED_HUB", True),
         embed_discovery=_bool("EMBED_DISCOVERY", True),
         verify_concurrency=max(1, _int("VERIFY_CONCURRENCY", 4)),
         verify_timeout_seconds=max(3, _int("VERIFY_TIMEOUT_SECONDS", 20)),

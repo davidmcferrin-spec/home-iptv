@@ -23,6 +23,7 @@ from app.hdhomerun import (
     fetch_device,
     scan_lan,
 )
+from app.hub import StreamOffline, StreamStartError, TunersBusy
 from app.importer import (
     PlaylistFetchError,
     fetch_playlist_text,
@@ -190,6 +191,43 @@ def patch_channel(request: Request, channel_id: int, body: ChannelPatch) -> dict
         return channel_json(row, tags)
     finally:
         conn.close()
+
+
+def _channel_and_device(request: Request, channel_id: int, include_adult: bool) -> tuple[dict, dict | None]:
+    conn = _db(request)
+    try:
+        row = conn.execute("SELECT * FROM channels WHERE id = ?", (channel_id,)).fetchone()
+        if row is None or (row["adult"] and not include_adult):
+            raise HTTPException(404, "channel not found")
+        device = None
+        if row["device_id"]:
+            device_row = conn.execute(
+                "SELECT * FROM hdhomerun_devices WHERE id = ?",
+                (row["device_id"],),
+            ).fetchone()
+            device = None if device_row is None else dict(device_row)
+        return dict(row), device
+    finally:
+        conn.close()
+
+
+@router.post("/api/channels/{channel_id}/watch")
+def watch_channel(request: Request, channel_id: int, include_adult: bool = False) -> dict:
+    channel, device = _channel_and_device(request, channel_id, include_adult)
+    try:
+        return request.app.state.hub.ensure(channel, device, origin="watch")
+    except TunersBusy as exc:
+        raise HTTPException(503, "all tuners busy") from exc
+    except StreamOffline as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except StreamStartError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.get("/api/channels/{channel_id}/stream")
+def stream_status(request: Request, channel_id: int, include_adult: bool = False) -> dict:
+    _channel_and_device(request, channel_id, include_adult)
+    return request.app.state.hub.status(channel_id)
 
 
 @router.post("/api/channels/bulk")

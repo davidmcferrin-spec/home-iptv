@@ -283,7 +283,7 @@ class DiscoverySocket:
     the reliable path unless the container uses host networking or macvlan.
     """
 
-    def __init__(self, listen: bool) -> None:
+    def __init__(self, listen: bool, required: bool = False) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -293,6 +293,11 @@ class DiscoverySocket:
                 self.sock.bind(("0.0.0.0", DISCOVER_PORT))
                 self.bound_port = DISCOVER_PORT
             except OSError:
+                if required:
+                    self.sock.close()
+                    raise
+                # A scan can still send from an ephemeral port. Replies are unicast
+                # back to that port; only the emulation listener must hold 65001.
                 self.sock.bind(("0.0.0.0", 0))
                 self.bound_port = self.sock.getsockname()[1]
         else:

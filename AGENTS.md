@@ -1,6 +1,6 @@
 # Home IPTV
 
-Personal LAN app. It imports playlists and HDHomeRun lineups the operator is allowed to watch, indexes them in SQLite, and (in later components) restreams one upstream pull per channel to browsers.
+Personal LAN app. It imports playlists and HDHomeRun lineups the operator is allowed to watch, indexes them in SQLite, and restreams one upstream pull per channel to browsers over WebRTC.
 
 ## Layout
 
@@ -11,8 +11,11 @@ Personal LAN app. It imports playlists and HDHomeRun lineups the operator is all
 - `app/catalog.py` writes channels, tags, search, and EPG rows.
 - `app/verify.py` runs ffprobe. `app/worker.py` drains the queue and reimports playlists.
 - `app/hdhomerun.py` speaks the published HDHomeRun discovery and lineup HTTP API.
+- `app/hub.py` pulls each channel once with ffmpeg and publishes it to MediaMTX. WebRTC uses WHEP. LL-HLS is the fallback.
+- `app/emulation.py` is the optional HDHomeRun device (off by default).
 - `app/epg.py` reads XMLTV.
-- `tests/` covers the parser, detection, adult filtering, lineup parsing, and the search API.
+- `mediamtx.yml` is the relay config. `scripts/test_sources.py` serves local ffmpeg patterns.
+- `tests/` covers the parser, detection, adult filtering, lineup parsing, the search API, the single upstream pull, and emulation.
 
 ## Run
 
