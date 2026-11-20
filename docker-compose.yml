@@ -1,0 +1,77 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.16.2
+    command: ["/mediamtx.yml"]
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "${HLS_PORT:-8888}:8888"
+      - "${WEBRTC_PORT:-8889}:8889"
+      - "${WEBRTC_UDP_PORT:-8189}:8189/udp"
+      - "${RTSP_PORT:-8554}:8554"
+    healthcheck:
+      test: ["CMD", "/mediamtx", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+      - "${HDHR_UDP_PORT:-65001}:65001/udp"
+    environment:
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
+      EMBED_WORKER: "0"
+      EMBED_HUB: "1"
+      EMBED_DISCOVERY: "1"
+      DATABASE_PATH: /config/home-iptv.sqlite
+      DATA_DIR: /data
+      MEDIAMTX_API: http://mediamtx:9997
+      MEDIAMTX_RTSP: rtsp://mediamtx:8554
+      PUBLIC_HTTP_BASE: ${PUBLIC_HTTP_BASE:-http://127.0.0.1:8080}
+      PUBLIC_WEBRTC_BASE: ${PUBLIC_WEBRTC_BASE:-http://127.0.0.1:8889}
+      PUBLIC_HLS_BASE: ${PUBLIC_HLS_BASE:-http://127.0.0.1:8888}
+      WEBRTC_ADDITIONAL_HOST: ${WEBRTC_ADDITIONAL_HOST:-}
+      IDLE_TIMEOUT_SECONDS: ${IDLE_TIMEOUT_SECONDS:-60}
+    volumes:
+      - ${CONFIG_PATH:-./config}:/config
+      - ${DATA_PATH:-./data}:/data
+    depends_on:
+      mediamtx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 8s
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
+      EMBED_WORKER: "1"
+      EMBED_HUB: "0"
+      EMBED_DISCOVERY: "0"
+      DATABASE_PATH: /config/home-iptv.sqlite
+      DATA_DIR: /data
+      VERIFY_CONCURRENCY: ${VERIFY_CONCURRENCY:-4}
+      VERIFY_TIMEOUT_SECONDS: ${VERIFY_TIMEOUT_SECONDS:-20}
+      VERIFY_INTERVAL_MINUTES: ${VERIFY_INTERVAL_MINUTES:-360}
+    volumes:
+      - ${CONFIG_PATH:-./config}:/config
+      - ${DATA_PATH:-./data}:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib; raise SystemExit(0 if b'app.worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 8s
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+[
+  {
+    "GuideNumber": "2.1",
+    "GuideName": "Local News",
+    "URL": "http://10.0.0.8:5004/auto/v2.1",
+    "HD": 1
+  },
+  {
+    "GuideNumber": "11.1",
+    "GuideName": "Weather",
+    "URL": "http://10.0.0.8:5004/auto/v11.1"
+  }
+]

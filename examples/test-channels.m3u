@@ -1,0 +1,8 @@
+#EXTM3U
+# Local ffmpeg test patterns from scripts/test_sources.py. Not a channel lineup.
+#EXTINF:-1 tvg-id="bars" tvg-language="en" tvg-country="US" tvg-logo="" group-title="Test",Color Bars
+http://127.0.0.1:9000/bars.ts
+#EXTINF:-1 tvg-id="tone" tvg-language="en" tvg-country="US" group-title="Test",Tone
+http://127.0.0.1:9000/tone.ts
+#EXTINF:-1 group-title="Adult",Test XXX
+http://127.0.0.1:9000/adult.ts

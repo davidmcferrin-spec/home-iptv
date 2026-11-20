@@ -1,0 +1,7 @@
+{
+  "name": "home-iptv",
+  "private": true,
+  "dependencies": {
+    "hls.js": "1.5.20"
+  }
+}

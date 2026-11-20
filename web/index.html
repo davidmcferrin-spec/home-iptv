@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home IPTV</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    (function () {
+      var w = window.innerWidth;
+      var h = window.innerHeight;
+      var phone = w <= 720 || (h <= 500 && w <= 980);
+      document.documentElement.classList.toggle("is-phone", phone);
+    })();
+  </script>
+</head>
+<body>
+  <div id="shell">
+    <div id="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <div id="stage-bars" aria-hidden="true"></div>
+      <div id="stage-chrome">
+        <div id="stage-label">Live</div>
+        <button id="sound" type="button">Sound</button>
+      </div>
+    </div>
+    <div id="dim" hidden></div>
+    <div id="frame">
+    <header id="topbar">
+      <div id="chips" role="tablist" aria-label="Filters"></div>
+      <div id="clock-block">
+        <div id="clock-time">
+          <span id="clock">--:--</span>
+          <span id="meridian">--</span>
+          <span id="now-mark" aria-hidden="true"></span>
+        </div>
+        <div id="clock-date">
+          <div id="weekday">--</div>
+          <div id="monthday">--</div>
+        </div>
+      </div>
+    </header>
+    <section id="info" aria-live="polite">
+      <div id="info-copy">
+        <p id="info-kicker"></p>
+        <h1 id="info-title">Guide</h1>
+        <p id="info-episode"></p>
+        <p id="info-meta"></p>
+        <p id="info-desc"></p>
+      </div>
+      <div id="preview"></div>
+    </section>
+    <div id="phone-tools">
+      <button id="view-list" type="button">List</button>
+      <button id="view-grid" type="button">Grid</button>
+    </div>
+    <div id="phone-list"></div>
+    <div id="guide-scroll">
+      <div id="guide"></div>
+    </div>
+    </div>
+    <div id="hint">
+      <span id="hint-text">Arrows move · Enter watch · 0-9 tune · PgUp channel</span>
+      <button id="ch-down" type="button">CH-</button>
+      <button id="ch-up" type="button">CH+</button>
+      <button id="adult-toggle" type="button">Show adult content</button>
+      <button id="open-settings" type="button">Settings</button>
+    </div>
+  </div>
+  <button id="back-guide" type="button" hidden>Guide</button>
+  <div id="toast" hidden></div>
+  <div id="number-entry" hidden></div>
+  <div id="settings" hidden>
+    <form id="settings-form">
+      <h2>Default view</h2>
+      <label>Country
+        <select id="set-country"></select>
+      </label>
+      <fieldset>
+        <legend>Languages</legend>
+        <div id="set-languages"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Tags</legend>
+        <div id="set-tags"></div>
+      </fieldset>
+      <label>Sort
+        <select id="set-sort">
+          <option value="number">Channel number</option>
+          <option value="title">Title</option>
+          <option value="language">Language</option>
+          <option value="country">Country</option>
+          <option value="status">Status</option>
+        </select>
+      </label>
+      <label>Starting channel
+        <select id="set-start"></select>
+      </label>
+      <label class="check">
+        <input id="set-adult" type="checkbox">
+        Show adult content for this browser session
+      </label>
+      <div class="settings-actions">
+        <button type="submit">Save</button>
+        <button id="close-settings" type="button">Close</button>
+      </div>
+    </form>
+  </div>
+  <script src="/static/vendor/hls.min.js"></script>
+  <script src="/static/guide.js"></script>
+</body>
+</html>
