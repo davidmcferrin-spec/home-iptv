@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    environment:
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
+      EMBED_WORKER: "0"
+      DATABASE_PATH: /config/home-iptv.sqlite
+      DATA_DIR: /data
+      PUBLIC_HTTP_BASE: ${PUBLIC_HTTP_BASE:-http://127.0.0.1:8080}
+    volumes:
+      - ${CONFIG_PATH:-./config}:/config
+      - ${DATA_PATH:-./data}:/data
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
+      DATABASE_PATH: /config/home-iptv.sqlite
+      DATA_DIR: /data
+      VERIFY_CONCURRENCY: ${VERIFY_CONCURRENCY:-4}
+      VERIFY_TIMEOUT_SECONDS: ${VERIFY_TIMEOUT_SECONDS:-20}
+      VERIFY_INTERVAL_MINUTES: ${VERIFY_INTERVAL_MINUTES:-360}
+    volumes:
+      - ${CONFIG_PATH:-./config}:/config
+      - ${DATA_PATH:-./data}:/data
+    restart: unless-stopped

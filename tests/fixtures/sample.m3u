@@ -1,0 +1,16 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="news.us" tvg-name="City News" tvg-logo="http://example.test/news.png" tvg-language="en" tvg-country="US" group-title="News",City News
+http://example.test/news.ts
+#EXTINF:-1 tvg-id="cine.fr" tvg-language="fr" tvg-country="FR" group-title="Cinema",Cinema FR
+http://example.test/cine.ts
+#EXTINF:-1 group-title="UK | Sports",Match Night
+http://example.test/match.ts
+#EXTINF:-1 group-title="Adult",Midnight XXX
+http://example.test/adult.ts
+#EXTINF:-1 tvg-language="en" tvg-country="US" group-title="Adult Swim",Adult Swim East
+http://example.test/swim.ts
+#EXTINF:-1 tvg-id="news.us" tvg-name="City News" tvg-logo="http://example.test/news.png" tvg-language="en" tvg-country="US" group-title="News",City News Updated
+http://example.test/news.ts
+#EXTINF:-1 group-title="Food & Travel",Travel Hour (UK)
+http://example.test/travel.ts
+#EXTINF:-1,Missing URL
