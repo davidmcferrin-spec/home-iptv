@@ -6,11 +6,12 @@ RUN mkdir -p /out && cp node_modules/hls.js/dist/hls.min.js /out/hls.min.js
 
 FROM python:3.12-slim-bookworm
 
+# GID 100 already exists in current Debian slim, so the entrypoint applies PUID and PGID.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 100 app \
-    && useradd --system --uid 99 --gid app --home-dir /config --no-create-home app
+    && groupadd --system app \
+    && useradd --system --gid app --home-dir /config --no-create-home app
 
 WORKDIR /opt/home-iptv
 COPY pyproject.toml README.md ./

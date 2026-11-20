@@ -73,19 +73,66 @@ If `POST /api/channels/{id}/watch` returns `all tuners busy`, the guide shows "A
 
 ## Unraid
 
-Use the Compose Manager plugin and this repository's `docker-compose.yml`. That stack is the app, the verifier, and MediaMTX.
+There is no published image on GHCR. `.github/workflows/image.yml` can build `home-iptv:latest` for `linux/amd64` and `linux/arm64`, and it does not push. MediaMTX is the Docker Hub image `bluenviron/mediamtx:1.16.2`, which Compose pulls. The app and the worker are built on the Unraid server from this Dockerfile.
 
-1. Build is done by Compose (`docker compose up --build -d` from a checkout, or point the stack at this directory).
-2. Map `CONFIG_PATH` to `/mnt/user/appdata/home-iptv/config` and `DATA_PATH` to `/mnt/user/appdata/home-iptv/data`.
-3. Set `PUID` and `PGID` (99 and 100 are the usual Unraid values).
-4. Set `PUBLIC_HTTP_BASE`, `PUBLIC_WEBRTC_BASE`, and `PUBLIC_HLS_BASE` to `http://<unraid-ip>` plus ports 8080, 8889, and 8888. Set `WEBRTC_ADDITIONAL_HOST` to that IP so browsers can open the WebRTC UDP port (`WEBRTC_UDP_PORT`, default 8189).
-5. Open `http://<unraid-ip>:8080/`.
+Compose Manager is the install that starts the app, the worker, and MediaMTX together. `unraid/home-iptv.xml` is a Community Applications template for the app container only. Use it after `docker build -t home-iptv:latest .`, and still run MediaMTX and the worker. Do not publish the WebRTC and HLS ports on both the template and the MediaMTX service.
 
-HDHomeRun UDP discovery does not cross Docker bridge networking. For discovery of a real tuner, or so Plex, Jellyfin, or Channels can find the optional emulated tuner, run the stack with host networking or a macvlan. Adding a tuner by IP still works on the bridge. Emulation stays off until you enable it in `PATCH /api/settings` or from a client of that API. The guide has no server-side switch for it; set `hdhr_emulation` with the settings API.
+### Compose Manager
 
-`unraid/home-iptv.xml` is a Community Applications template for an image named `home-iptv:latest`. Build that tag on the server before adding the template (`docker build -t home-iptv:latest .`). The template carries the web port, the WebRTC UDP port, `/config`, `/data`, `PUID`, and `PGID`. The compose file is the install that also starts MediaMTX and the worker.
+1. Install the Compose Manager plugin from Community Applications.
+2. Put a checkout of this repo on the server, for example under `/mnt/user/appdata/home-iptv/src`.
+3. Create the appdata directories and point the stack at them:
 
-The Dockerfile uses multi-arch base images. `.github/workflows/image.yml` builds `linux/amd64` and `linux/arm64` when you run it by hand. For a local playback fallback, the image copies `hls.js` from npm. A checkout can do the same with `npm ci` and `mkdir -p web/vendor && cp node_modules/hls.js/dist/hls.min.js web/vendor/hls.min.js`.
+```sh
+mkdir -p /mnt/user/appdata/home-iptv/config /mnt/user/appdata/home-iptv/data
+```
+
+`CONFIG_PATH=/mnt/user/appdata/home-iptv/config` is mounted on `/config` (the SQLite index). `DATA_PATH=/mnt/user/appdata/home-iptv/data` is mounted on `/data` (uploads and stream logs).
+
+4. Set `PUID` and `PGID`. `99` and `100` are the usual Unraid `nobody` and `users` values. The container applies them at start so files in those directories are owned by that account.
+5. Set the addresses browsers on the LAN will use, with `<unraid-ip>` replaced by the server's LAN address:
+
+- `PUBLIC_HTTP_BASE=http://<unraid-ip>:8080`
+- `PUBLIC_WEBRTC_BASE=http://<unraid-ip>:8889`
+- `PUBLIC_HLS_BASE=http://<unraid-ip>:8888`
+- `WEBRTC_ADDITIONAL_HOST=<unraid-ip>`
+
+6. Leave the published ports as they are unless something else on the server already uses them:
+
+| Port | Protocol | What it is |
+| --- | --- | --- |
+| 8080 | TCP | Guide and API |
+| 8889 | TCP | WebRTC signaling (WHEP) |
+| 8189 | UDP | WebRTC media. This one must stay UDP. |
+| 8888 | TCP | Low-latency HLS fallback |
+| 8554 | TCP | RTSP inside the stack |
+| 65001 | UDP | HDHomeRun discovery |
+
+7. Add the stack in Compose Manager from `docker-compose.yml` and start it with a build (`docker compose up --build -d`). The app, worker, and MediaMTX each have a health check. The guide is `http://<unraid-ip>:8080/`.
+
+Bridge networking is enough for playback when port 8189/udp is published and `WEBRTC_ADDITIONAL_HOST` is the LAN address. Docker bridge does not forward UDP broadcasts, so HDHomeRun discovery of a tuner on the LAN, and discovery of the optional emulated tuner by Plex, Jellyfin, or Channels, will not work on the bridge. For that, run the stack with host networking or a macvlan on the LAN. Adding a tuner by its IP still works on the bridge. Emulation stays off until `PATCH /api/settings` sets `hdhr_emulation`. The guide does not switch it on.
+
+### Community Applications template
+
+1. On the server, from a checkout: `docker build -t home-iptv:latest .`
+2. Copy `unraid/home-iptv.xml` into the flash templates folder, or add the container in the Docker page from that template.
+3. The template maps `/mnt/user/appdata/home-iptv/config` to `/config` and `/mnt/user/appdata/home-iptv/data` to `/data`, and sets `PUID` and `PGID` to `99` and `100`.
+4. It publishes 8080/tcp, 8889/tcp, 8189/udp, 8888/tcp, and 65001/udp. Those MediaMTX ports belong on the MediaMTX container when you use Compose. The template's `MEDIAMTX_API` and `MEDIAMTX_RTSP` must be the address of that MediaMTX, and the worker must be a second container with the same `/config` and `/data` mounts and `EMBED_WORKER=1`.
+5. Set `PUBLIC_HTTP_BASE`, `PUBLIC_WEBRTC_BASE`, `PUBLIC_HLS_BASE`, and `WEBRTC_ADDITIONAL_HOST` to the Unraid LAN address, as in the Compose steps. Use host networking or a macvlan when UDP discovery has to cross the LAN.
+
+### First playlist
+
+The guide has no import form. After the stack is up, upload a playlist you are allowed to watch:
+
+```sh
+curl -F name=Living\ room -F file=@playlist.m3u http://<unraid-ip>:8080/api/playlists/upload
+```
+
+`examples/test-channels.m3u` is not a channel lineup. It points at `python scripts/test_sources.py`, which serves ffmpeg test patterns. On a bridge network, `127.0.0.1` inside a container is the container, not the Unraid host, so change those URLs to an address the worker can open. The worker probes each stream and the guide lists the ones that are online. Adult channels stay hidden until the session control in the guide is turned on.
+
+### Updates
+
+Config and data stay in the appdata directories. From the checkout, `git pull`, then `docker compose up --build -d`. That rebuilds the app and the worker and restarts the stack. `docker compose pull` refreshes MediaMTX when the tag in the compose file changes. For the template, rebuild `home-iptv:latest` and restart that container. There is no GHCR tag to pull for the app.
 
 ## Tests
 

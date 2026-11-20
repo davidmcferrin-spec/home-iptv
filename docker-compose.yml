@@ -1,7 +1,7 @@
 services:
   mediamtx:
     image: bluenviron/mediamtx:1.16.2
-    command: ["/mediamtx", "/mediamtx.yml"]
+    command: ["/mediamtx.yml"]
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
     ports:
@@ -9,6 +9,12 @@ services:
       - "${WEBRTC_PORT:-8889}:8889"
       - "${WEBRTC_UDP_PORT:-8189}:8189/udp"
       - "${RTSP_PORT:-8554}:8554"
+    healthcheck:
+      test: ["CMD", "/mediamtx", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
     restart: unless-stopped
 
   app:
@@ -35,7 +41,14 @@ services:
       - ${CONFIG_PATH:-./config}:/config
       - ${DATA_PATH:-./data}:/data
     depends_on:
-      - mediamtx
+      mediamtx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 8s
     restart: unless-stopped
 
   worker:
@@ -55,4 +68,10 @@ services:
     volumes:
       - ${CONFIG_PATH:-./config}:/config
       - ${DATA_PATH:-./data}:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib; raise SystemExit(0 if b'app.worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 8s
     restart: unless-stopped
