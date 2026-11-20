@@ -64,12 +64,49 @@
       <button id="ch-down" type="button">CH-</button>
       <button id="ch-up" type="button">CH+</button>
       <button id="adult-toggle" type="button">Show adult content</button>
+      <button id="open-import" type="button">Sources</button>
       <button id="open-settings" type="button">Settings</button>
     </div>
   </div>
   <button id="back-guide" type="button" hidden>Guide</button>
   <div id="toast" hidden></div>
   <div id="number-entry" hidden></div>
+  <div id="import" hidden>
+    <div id="import-panel">
+      <h2>Sources</h2>
+      <form id="upload-form">
+        <button id="choose-file" type="button">Choose M3U file</button>
+        <input id="upload-file" type="file" accept=".m3u,.m3u8,audio/mpegurl,application/vnd.apple.mpegurl" hidden>
+        <span id="upload-filename"></span>
+        <label>Name
+          <input id="upload-name" type="text" maxlength="120" autocomplete="off">
+        </label>
+        <button type="submit">Upload</button>
+      </form>
+      <form id="url-form">
+        <label>Playlist URL
+          <input id="playlist-url" type="url" inputmode="url" autocomplete="off" placeholder="https://">
+        </label>
+        <label>Name
+          <input id="url-name" type="text" maxlength="120" autocomplete="off">
+        </label>
+        <label>Re-import every (minutes)
+          <input id="url-interval" type="number" inputmode="numeric" min="5" max="10080" placeholder="Optional">
+        </label>
+        <button type="submit">Add playlist</button>
+      </form>
+      <form id="hdhr-form">
+        <label>HDHomeRun IP or address
+          <input id="hdhr-host" type="text" autocomplete="off" placeholder="192.168.1.50">
+        </label>
+        <button type="submit">Add tuner</button>
+      </form>
+      <p id="import-error" role="alert"></p>
+      <div id="playlist-list"></div>
+      <div id="device-list"></div>
+      <button id="close-import" type="button">Close</button>
+    </div>
+  </div>
   <div id="settings" hidden>
     <form id="settings-form">
       <h2>Default view</h2>

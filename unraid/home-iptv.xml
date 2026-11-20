@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>HomeIPTV</Name>
-  <Repository>home-iptv:latest</Repository>
+  <Repository>ghcr.io/davidmcferrin-spec/home-iptv:latest</Repository>
   <Registry/>
   <Network>bridge</Network>
   <MyIP/>
@@ -9,7 +9,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/davidmcferrin-spec/home-iptv</Support>
   <Project>https://github.com/davidmcferrin-spec/home-iptv</Project>
-  <Overview>Personal guide and restreamer for playlists and HDHomeRun tuners you are allowed to watch. Build home-iptv:latest on the server, then use docker-compose.yml so MediaMTX and the verifier run with this app. Do not publish the stack to the internet.</Overview>
+  <Overview>Personal guide and restreamer for playlists and HDHomeRun tuners you are allowed to watch. Pull ghcr.io/davidmcferrin-spec/home-iptv:latest. A private package needs a read:packages token, or the package must be public. Use docker-compose.yml so MediaMTX and the worker run with this app. Do not publish the stack to the internet.</Overview>
   <Category>MediaApp:Video</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL/>

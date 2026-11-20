@@ -230,6 +230,39 @@ def test_arrow_keys_move_the_highlight(browser, guide_url):
         context.close()
 
 
+def test_import_screen_at_each_viewport(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    for name, width, height in VIEWPORTS:
+        context, page = _open(browser, guide_url, width, height)
+        try:
+            page.get_by_role("button", name="Sources").click()
+            page.wait_for_selector("#playlist-list .source-row")
+            assert page.locator("#choose-file").bounding_box()["height"] >= 44
+            assert page.get_by_role("button", name="Add playlist").bounding_box()["height"] >= 44
+            page.locator("#playlist-url").fill("ftp://example.test/list.m3u")
+            page.locator("#url-name").fill("Bad")
+            page.get_by_role("button", name="Add playlist").click()
+            page.get_by_text("playlist URL must be http or https").wait_for()
+            page.locator("#url-form").evaluate("form => form.reset()")
+            page.locator("#upload-file").set_input_files(
+                {
+                    "name": f"{name}.m3u",
+                    "mimeType": "audio/mpegurl",
+                    "buffer": f"#EXTM3U\n#EXTINF:-1,{name}\nhttp://example.test/{name}.ts\n".encode(),
+                }
+            )
+            page.locator("#upload-name").fill(name)
+            page.get_by_role("button", name="Upload").click()
+            row = page.locator("#playlist-list").get_by_text(name, exact=True)
+            row.wait_for()
+            page.locator("#playlist-list").get_by_text("Checking").first.wait_for()
+            row.scroll_into_view_if_needed()
+            page.screenshot(path=str(artifacts / f"import-{name}.png"))
+        finally:
+            context.close()
+
+
 def test_default_view_is_saved_in_the_browser(browser, guide_url):
     context, page = _open(browser, guide_url, 1280, 800)
     try:

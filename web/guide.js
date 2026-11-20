@@ -742,6 +742,29 @@ function setAdult(on) {
 
 document.getElementById("adult-toggle").addEventListener("click", () => setAdult(!showAdult()));
 document.getElementById("open-settings").addEventListener("click", openSettings);
+document.getElementById("open-import").addEventListener("click", openImport);
+document.getElementById("close-import").addEventListener("click", closeImport);
+document.getElementById("choose-file").addEventListener("click", () => {
+  document.getElementById("upload-file").click();
+});
+document.getElementById("upload-file").addEventListener("change", () => {
+  const file = document.getElementById("upload-file").files[0];
+  document.getElementById("upload-filename").textContent = file ? file.name : "";
+  const name = document.getElementById("upload-name");
+  if (file && !name.value.trim()) name.value = file.name.replace(/\.(m3u8|m3u)$/i, "");
+});
+document.getElementById("upload-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  uploadPlaylist().catch((err) => showImportError(err.message));
+});
+document.getElementById("url-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  addPlaylistUrl().catch((err) => showImportError(err.message));
+});
+document.getElementById("hdhr-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  addTuner().catch((err) => showImportError(err.message));
+});
 document.getElementById("close-settings").addEventListener("click", () => {
   document.getElementById("settings").hidden = true;
 });
@@ -765,13 +788,16 @@ document.getElementById("sound").addEventListener("click", () => {
 
 document.addEventListener("keydown", (event) => {
   const settingsOpen = !document.getElementById("settings").hidden;
+  const importOpen = !document.getElementById("import").hidden;
   if (event.key === "Escape") {
     document.getElementById("settings").hidden = true;
+    closeImport();
     document.documentElement.classList.remove("video-full");
     document.getElementById("back-guide").hidden = true;
     return;
   }
-  if (settingsOpen) return;
+  if (event.target.closest("input, textarea, select")) return;
+  if (settingsOpen || importOpen) return;
   if (event.key === "ArrowDown") {
     event.preventDefault();
     if (document.documentElement.classList.contains("video-full")) tuneRelative(1);
@@ -800,6 +826,8 @@ document.addEventListener("keydown", (event) => {
     if (channel) toggleFavorite(channel.id);
   } else if (event.key === "s" || event.key === "S") {
     openSettings();
+  } else if (event.key === "i" || event.key === "I") {
+    openImport();
   } else if (event.key === "a" || event.key === "A") {
     setAdult(!showAdult());
   } else if (event.key === "g" || event.key === "G") {
@@ -813,6 +841,221 @@ window.addEventListener("resize", () => {
   syncLayout();
   render();
 });
+
+function showImportError(message) {
+  document.getElementById("import-error").textContent = message || "";
+}
+
+function closeImport() {
+  document.getElementById("import").hidden = true;
+  window.clearInterval(closeImport.timer);
+}
+
+function openImport() {
+  document.getElementById("import").hidden = false;
+  showImportError("");
+  document.getElementById("choose-file").focus();
+  refreshSources().catch((err) => showImportError(err.message));
+  window.clearInterval(closeImport.timer);
+  closeImport.timer = window.setInterval(() => {
+    if (document.getElementById("import").hidden) return;
+    refreshSources().catch((err) => showImportError(err.message));
+  }, 2000);
+}
+
+async function errorDetail(response) {
+  try {
+    const body = await response.json();
+    if (typeof body.detail === "string") return body.detail;
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+  }
+  return `request failed (${response.status})`;
+}
+
+async function uploadPlaylist() {
+  const file = document.getElementById("upload-file").files[0];
+  if (!file) {
+    showImportError("Choose an M3U file");
+    return;
+  }
+  const named = document.getElementById("upload-name").value.trim();
+  const body = new FormData();
+  body.set("name", named || file.name.replace(/\.(m3u8|m3u)$/i, ""));
+  body.set("file", file);
+  const response = await fetch("/api/playlists/upload", { method: "POST", body });
+  if (!response.ok) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  document.getElementById("upload-form").reset();
+  document.getElementById("upload-filename").textContent = "";
+  await refreshSources();
+  loadGuide().catch((err) => toast(err.message));
+}
+
+async function addPlaylistUrl() {
+  const url = document.getElementById("playlist-url").value.trim();
+  const name = document.getElementById("url-name").value.trim();
+  if (!url || !name) {
+    showImportError("Playlist URL and name are both required");
+    return;
+  }
+  const payload = { name, url };
+  const minutes = document.getElementById("url-interval").value.trim();
+  if (minutes) payload.interval_minutes = Number(minutes);
+  const response = await fetch("/api/playlists", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  document.getElementById("url-form").reset();
+  await refreshSources();
+  loadGuide().catch((err) => toast(err.message));
+}
+
+async function addTuner() {
+  const host = document.getElementById("hdhr-host").value.trim();
+  if (!host) {
+    showImportError("HDHomeRun address is required");
+    return;
+  }
+  const response = await fetch("/api/hdhomerun/devices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ host }),
+  });
+  if (!response.ok) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  document.getElementById("hdhr-host").value = "";
+  await refreshSources();
+  loadGuide().catch((err) => toast(err.message));
+}
+
+function progressText(playlist) {
+  if (playlist.status === "checking") {
+    const done = playlist.channel_count - playlist.pending;
+    return `Checking ${done} of ${playlist.channel_count}`;
+  }
+  if (playlist.status === "empty") return "No channels";
+  if (playlist.status === "online") return "Online";
+  if (playlist.status === "offline") return "Offline";
+  return `${playlist.online} online, ${playlist.offline} offline`;
+}
+
+function sourceRow(title, meta, actions) {
+  const row = document.createElement("div");
+  row.className = "source-row";
+  const text = document.createElement("div");
+  text.className = "text";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = title;
+  const detail = document.createElement("span");
+  detail.className = "meta";
+  detail.textContent = meta;
+  text.append(name, detail);
+  row.appendChild(text);
+  actions.forEach((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = action.label;
+    button.addEventListener("click", () => {
+      action.run().catch((err) => showImportError(err.message));
+    });
+    row.appendChild(button);
+  });
+  return row;
+}
+
+async function refreshSources() {
+  const [playlistsResponse, devicesResponse] = await Promise.all([
+    fetch("/api/playlists"),
+    fetch("/api/hdhomerun/devices"),
+  ]);
+  if (!playlistsResponse.ok) throw new Error(await errorDetail(playlistsResponse));
+  if (!devicesResponse.ok) throw new Error(await errorDetail(devicesResponse));
+  const playlists = (await playlistsResponse.json()).playlists;
+  const devices = (await devicesResponse.json()).devices;
+  const list = document.getElementById("playlist-list");
+  list.innerHTML = "";
+  playlists.forEach((playlist) => {
+    const when = playlist.last_imported_at ? playlist.last_imported_at.replace("T", " ").replace("Z", " UTC") : "Not imported";
+    list.appendChild(sourceRow(
+      playlist.name,
+      `${playlist.channel_count} channels · ${when} · ${progressText(playlist)}`,
+      [
+        { label: "Re-import", run: () => reimportPlaylist(playlist.id) },
+        { label: "Delete", run: () => deletePlaylist(playlist.id) },
+      ],
+    ));
+  });
+  const deviceList = document.getElementById("device-list");
+  deviceList.innerHTML = "";
+  devices.forEach((device) => {
+    deviceList.appendChild(sourceRow(
+      device.friendly_name || device.host,
+      `${device.host} · ${device.tuner_count} tuners`,
+      [
+        { label: "Refresh", run: () => refreshDevice(device.id) },
+        { label: "Delete", run: () => deleteDevice(device.id) },
+      ],
+    ));
+  });
+}
+
+async function reimportPlaylist(id) {
+  const response = await fetch(`/api/playlists/${id}/import`, { method: "POST" });
+  if (!response.ok) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  await refreshSources();
+  loadGuide().catch((err) => toast(err.message));
+}
+
+async function deletePlaylist(id) {
+  const response = await fetch(`/api/playlists/${id}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 204) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  await refreshSources();
+  loadGuide().catch((err) => toast(err.message));
+}
+
+async function refreshDevice(id) {
+  const response = await fetch(`/api/hdhomerun/devices/${id}/import`, { method: "POST" });
+  if (!response.ok) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  await refreshSources();
+  loadGuide().catch((err) => toast(err.message));
+}
+
+async function deleteDevice(id) {
+  const response = await fetch(`/api/hdhomerun/devices/${id}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 204) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  await refreshSources();
+  loadGuide().catch((err) => toast(err.message));
+}
 
 const saved = loadView();
 chip = saved.country || saved.languages.length || saved.tags.length ? "saved" : "all";
