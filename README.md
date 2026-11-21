@@ -73,7 +73,7 @@ With the default `EMBED_WORKER=1`, the API process also runs the verifier.
 
 Open `/` in a browser on the LAN. The guide is a dark overlay on the live picture: filter chips, a clock and date, a program info panel, and a channel grid. Arrow keys move the highlight, Enter watches the focused channel, Page Up and Page Down change channel, and the number keys tune a guide number. On a phone the guide collapses to a now-and-next list with a swipeable grid, and tapping a channel plays full screen. Sources (`I`, or the Sources button) uploads an M3U or M3U8 file, adds a playlist URL with an optional re-import interval, lists each playlist with its channel count and check progress, and adds an HDHomeRun by IP.
 
-The default view (country, languages, tags, sort, and the starting channel) stays in this browser (`localStorage`). Server settings, including the public bases, verify timing, the idle timeout, and HDHomeRun emulation, are stored in SQLite and edited from the same Settings screen. Host ports are shown there and changed in Compose or the template. Show adult content lasts for the browser session (`sessionStorage`). A new tab starts with adult channels hidden. Adult channels stay out of the grid, the list, search, and counts until that control is on.
+The default view (country, languages, tags, sort, and the starting channel) stays in this browser (`localStorage`). Server settings, including the public bases, verify timing, the idle timeout, and HDHomeRun emulation, are stored in SQLite and edited from the same Settings screen. Host ports are shown there and changed in Compose or the template. Show adult content is in Settings and lasts for the browser session (`sessionStorage`). A new tab starts with adult channels hidden. Adult channels stay out of the grid, the list, search, and counts until that control is on.
 
 If `POST /api/channels/{id}/watch` returns `all tuners busy`, the guide shows "All tuners are busy" and does not open another upstream pull.
 
@@ -110,7 +110,7 @@ After the stack is up, open the guide and use Sources to upload an M3U or M3U8 f
 curl -F name=Living\ room -F file=@playlist.m3u http://<unraid-ip>:9595/api/playlists/upload
 ```
 
-`examples/test-channels.m3u` is not a channel lineup. It points at `python scripts/test_sources.py`, which serves ffmpeg test patterns. On a bridge network, `127.0.0.1` inside a container is the container, not the Unraid host, so change those URLs to an address the worker can open. The worker probes each stream and the guide lists the ones that are online. Adult channels stay hidden until the session control in the guide is turned on.
+`examples/test-channels.m3u` is not a channel lineup. It points at `python scripts/test_sources.py`, which serves ffmpeg test patterns. On a bridge network, `127.0.0.1` inside a container is the container, not the Unraid host, so change those URLs to an address the worker can open. The worker probes each stream and the guide lists the ones that are online. Adult channels stay hidden until Settings turns on show adult content for this browser session.
 
 ### Updates
 

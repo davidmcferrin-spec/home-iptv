@@ -456,10 +456,8 @@ function render() {
   renderGuide();
   renderPhone();
   placeDim();
-  const adult = document.getElementById("adult-toggle");
-  adult.textContent = showAdult() ? "Hide adult content" : "Show adult content";
-  const setAdult = document.getElementById("set-adult");
-  if (setAdult) setAdult.checked = showAdult();
+  const setAdultBox = document.getElementById("set-adult");
+  if (setAdultBox) setAdultBox.checked = showAdult();
 }
 
 function placeNowLine() {
@@ -826,7 +824,6 @@ function setAdult(on) {
   loadGuide().catch((err) => toast(err.message));
 }
 
-document.getElementById("adult-toggle").addEventListener("click", () => setAdult(!showAdult()));
 document.getElementById("open-settings").addEventListener("click", openSettings);
 document.getElementById("open-import").addEventListener("click", openImport);
 document.getElementById("close-import").addEventListener("click", closeImport);

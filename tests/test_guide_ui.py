@@ -205,7 +205,9 @@ def test_adult_channels_reset_with_the_session(browser, guide_url):
     context, page = _open(browser, guide_url, 1280, 800)
     try:
         assert page.get_by_text("Midnight XXX").count() == 0
-        page.get_by_role("button", name="Show adult content").click()
+        page.get_by_role("button", name="Settings").click()
+        page.locator("#set-adult").check()
+        page.locator("#settings-form").get_by_role("button", name="Save").click()
         page.locator(".channel-name", has_text="Midnight XXX").wait_for()
     finally:
         context.close()
