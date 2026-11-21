@@ -105,13 +105,31 @@ button:focus-visible,
   pointer-events: none;
 }
 
-#sound {
+#sound, #fullscreen, #expand {
   position: absolute;
-  right: 8px;
   bottom: 8px;
   pointer-events: auto;
   background: rgba(0, 0, 0, 0.55);
+  min-height: 44px;
 }
+
+#sound { right: 8px; }
+#fullscreen { right: 96px; }
+#expand { right: 210px; }
+
+#starting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2;
+  font-size: 18px;
+}
+
+#starting[hidden] { display: none; }
 
 #shell {
   position: relative;
@@ -688,6 +706,18 @@ html.is-phone #hint {
 html.is-phone #hint button { padding: 0 10px; font-size: 14px; }
 html.is-phone #guide { grid-template-columns: 196px repeat(var(--slots), minmax(160px, 1fr)); min-width: calc(196px + var(--slots) * 160px); }
 
+html.video-full #frame,
+html.video-full #hint,
+html.video-full #dim { display: none; }
+html.video-full #shell { display: block; }
+html.video-full #stage {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  max-height: none;
+  height: 100%;
+  aspect-ratio: auto;
+}
 html.is-phone.video-full #shell { display: none; }
 html.is-phone.video-full #stage {
   position: fixed;

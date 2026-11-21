@@ -93,7 +93,7 @@ def test_playlist_and_guide_filters(client):
     assert "Midnight XXX" not in text
     assert "Soir" not in text
     assert 'tvg-id="news"' in text
-    assert 'tvg-logo="http://example.test/news.png"' in text
+    assert f'tvg-logo="http://testserver/api/logo/{by_title["Harbor News"]["id"]}"' in text
     assert 'group-title="News"' in text
     assert f"http://testserver/play/{by_title['Harbor News']['id']}" in text
     adult = client.get("/playlist.m3u", params={"include_adult": "1"})

@@ -13,6 +13,8 @@ class ProbeResult:
     audio_codec: str | None
     audio_language: str | None
     bitrate: int | None
+    video_profile: str | None = None
+    has_b_frames: int | None = None
 
 
 def probe_url(url: str, timeout_seconds: int) -> ProbeResult:
@@ -52,6 +54,15 @@ def probe_url(url: str, timeout_seconds: int) -> ProbeResult:
     return _from_payload(payload)
 
 
+def _b_frames(video: dict | None) -> int | None:
+    if not video or video.get("has_b_frames") is None:
+        return None
+    try:
+        return int(video["has_b_frames"])
+    except (TypeError, ValueError):
+        return None
+
+
 def _from_payload(payload: dict) -> ProbeResult:
     streams = payload.get("streams") or []
     video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
@@ -79,4 +90,6 @@ def _from_payload(payload: dict) -> ProbeResult:
         audio_codec=(audio.get("codec_name") if audio else None),
         audio_language=language,
         bitrate=bitrate,
+        video_profile=(video.get("profile") if video else None) or None,
+        has_b_frames=_b_frames(video),
     )

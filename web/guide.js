@@ -263,17 +263,11 @@ function replaySvg() {
 }
 
 function logoNode(channel) {
-  if (channel.logo_url) {
-    const img = document.createElement("img");
-    img.className = "logo";
-    img.alt = "";
-    img.src = channel.logo_url;
-    return img;
-  }
-  const fallback = document.createElement("span");
-  fallback.className = "logo-fallback";
-  fallback.textContent = (channel.title || "?").slice(0, 2).toUpperCase();
-  return fallback;
+  const img = document.createElement("img");
+  img.className = "logo";
+  img.alt = "";
+  img.src = `/api/logo/${channel.id}`;
+  return img;
 }
 
 function renderChips() {
@@ -577,12 +571,56 @@ function rememberTune(channel) {
   localStorage.setItem(COUNTS_KEY, JSON.stringify(counts));
 }
 
+function showStarting(on) {
+  document.getElementById("starting").hidden = !on;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+let stallTimer = 0;
+
+function stopStallWatch() {
+  window.clearInterval(stallTimer);
+  stallTimer = 0;
+}
+
+function armStallWatch(onStall) {
+  stopStallWatch();
+  let last = -1;
+  let stillSince = 0;
+  stallTimer = window.setInterval(() => {
+    const now = video.currentTime;
+    if (now <= 0.05) return;
+    if (last < 0 || Math.abs(now - last) > 0.05) {
+      last = now;
+      stillSince = performance.now();
+      return;
+    }
+    if (performance.now() - stillSince >= 4000) {
+      stopStallWatch();
+      onStall();
+    }
+  }, 500);
+}
+
 async function tune(channel) {
   rememberTune(channel);
   if (isPhone()) document.documentElement.classList.add("video-full");
   document.getElementById("back-guide").hidden = !isPhone();
-  const response = await fetch(`/api/channels/${channel.id}/watch${showAdult() ? "?include_adult=true" : ""}`, { method: "POST" });
+  showStarting(true);
+  stopStallWatch();
+  let response;
+  try {
+    response = await fetch(`/api/channels/${channel.id}/watch${showAdult() ? "?include_adult=true" : ""}`, { method: "POST" });
+  } catch (err) {
+    showStarting(false);
+    toast(`Starting stream failed: ${err.message}`);
+    return;
+  }
   if (response.status === 503) {
+    showStarting(false);
     toast("All tuners are busy");
     return;
   }
@@ -594,25 +632,56 @@ async function tune(channel) {
     } catch (err) {
       if (!(err instanceof SyntaxError)) throw err;
     }
+    showStarting(false);
     toast(detail);
     return;
   }
   const info = await response.json();
+  const useHls = info.playback === "hls";
+  let whepError = null;
   try {
-    await playWhep(info.whep_url);
+    if (useHls) await playHls(info.llhls_url);
+    else await playWhep(info.whep_url);
   } catch (err) {
     if (!(err instanceof Error)) throw err;
+    whepError = err;
+    if (useHls) {
+      showStarting(false);
+      toast(err.message);
+      render();
+      return;
+    }
     try {
       await playHls(info.llhls_url);
     } catch (hlsErr) {
       if (!(hlsErr instanceof Error)) throw hlsErr;
+      showStarting(false);
       toast(`${err.message}. ${hlsErr.message}`);
+      render();
+      return;
     }
   }
+  showStarting(false);
+  armStallWatch(async () => {
+    if (hlsPlayer || video.canPlayType("application/vnd.apple.mpegurl") && video.src) {
+      toast("HLS playback stalled");
+      return;
+    }
+    try {
+      await playHls(info.llhls_url);
+      showStarting(false);
+      armStallWatch(() => toast("HLS playback stalled"));
+    } catch (hlsErr) {
+      toast(hlsErr instanceof Error ? hlsErr.message : "HLS playback stalled");
+    }
+  });
+  if (whepError) toast(`WebRTC stalled, using HLS. ${whepError.message}`);
   render();
 }
 
 function closePlayback() {
+  stopStallWatch();
+  showStarting(false);
   if (peer) {
     peer.close();
     peer = null;
@@ -655,17 +724,7 @@ async function playWhep(url) {
   const offer = await connection.createOffer();
   await connection.setLocalDescription(offer);
   await waitForIce(connection);
-  let response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/sdp" },
-      body: connection.localDescription.sdp,
-    });
-  } catch (err) {
-    throw new Error(`WHEP handshake failed: ${err.message}`);
-  }
-  if (!response.ok) throw new Error(`WHEP handshake failed: HTTP ${response.status}`);
+  const response = await postWhep(url, connection.localDescription.sdp);
   try {
     await connection.setRemoteDescription({ type: "answer", sdp: await response.text() });
   } catch (err) {
@@ -692,19 +751,74 @@ function waitForConnected(connection) {
   });
 }
 
+async function postWhep(url, sdp) {
+  const deadline = performance.now() + 15000;
+  let wait = 400;
+  while (true) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/sdp" },
+        body: sdp,
+      });
+    } catch (err) {
+      throw new Error(`WHEP handshake failed: ${err.message}`);
+    }
+    if (response.ok) return response;
+    let body = "";
+    try {
+      body = await response.text();
+    } catch (err) {
+      body = "";
+    }
+    const missing = response.status === 404 && body.toLowerCase().includes("no stream");
+    if (missing && performance.now() < deadline) {
+      await sleep(wait);
+      wait = Math.min(wait + 300, 1500);
+      continue;
+    }
+    throw new Error(`WHEP handshake failed: HTTP ${response.status}`);
+  }
+}
+
 async function playHls(url) {
   closePlayback();
   if (window.Hls && window.Hls.isSupported()) {
     const player = new window.Hls({ lowLatencyMode: true, backBufferLength: 0 });
     hlsPlayer = player;
-    player.loadSource(url);
     player.attachMedia(video);
-    await new Promise((resolve, reject) => {
-      player.on(window.Hls.Events.MANIFEST_PARSED, resolve);
-      player.on(window.Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) reject(new Error(`HLS fallback failed: ${data.details || data.type || "error"}`));
-      });
-    });
+    const deadline = performance.now() + 15000;
+    let wait = 400;
+    while (true) {
+      player.loadSource(url);
+      try {
+        await new Promise((resolve, reject) => {
+          const onParsed = () => {
+            player.off(window.Hls.Events.MANIFEST_PARSED, onParsed);
+            player.off(window.Hls.Events.ERROR, onError);
+            resolve();
+          };
+          const onError = (_event, data) => {
+            if (!data.fatal) return;
+            player.off(window.Hls.Events.MANIFEST_PARSED, onParsed);
+            player.off(window.Hls.Events.ERROR, onError);
+            const status = data.response && data.response.code;
+            reject(Object.assign(new Error(`HLS fallback failed: ${data.details || data.type || "error"}`), { status }));
+          };
+          player.on(window.Hls.Events.MANIFEST_PARSED, onParsed);
+          player.on(window.Hls.Events.ERROR, onError);
+        });
+        break;
+      } catch (err) {
+        if (err.status === 404 && performance.now() < deadline) {
+          await sleep(wait);
+          wait = Math.min(wait + 300, 1500);
+          continue;
+        }
+        throw err;
+      }
+    }
     stage.classList.add("has-video");
     await video.play();
     return;
@@ -1013,6 +1127,31 @@ document.getElementById("sound").addEventListener("click", () => {
   document.getElementById("sound").textContent = video.muted ? "Sound" : "Mute";
 });
 
+function toggleFullscreen() {
+  const stageNode = document.getElementById("stage");
+  const videoNode = document.getElementById("video");
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+    return;
+  }
+  if (stageNode.requestFullscreen) {
+    stageNode.requestFullscreen().catch(() => {
+      if (videoNode.webkitEnterFullscreen) videoNode.webkitEnterFullscreen();
+    });
+    return;
+  }
+  if (videoNode.webkitEnterFullscreen) videoNode.webkitEnterFullscreen();
+}
+
+function toggleWindow() {
+  document.documentElement.classList.toggle("video-full");
+  document.getElementById("back-guide").hidden = !document.documentElement.classList.contains("video-full");
+}
+
+document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+document.getElementById("expand").addEventListener("click", toggleWindow);
+document.getElementById("video").addEventListener("dblclick", toggleFullscreen);
+
 function copyField(id) {
   const input = document.getElementById(id);
   input.focus();
@@ -1078,6 +1217,7 @@ async function openEditor() {
     document.getElementById("edit-language").value = one.language || "";
     document.getElementById("edit-country").value = one.country || "";
     document.getElementById("edit-adult").checked = Boolean(one.adult);
+    document.getElementById("edit-playback").value = one.playback_mode || "auto";
     editorTags = (one.tags || []).map((tag) => ({ id: tag.id, name: tag.name }));
   } else {
     editorTags = [];
@@ -1161,6 +1301,7 @@ async function saveEditor(event) {
           language: document.getElementById("edit-language").value.trim(),
           country: document.getElementById("edit-country").value.trim(),
           adult: document.getElementById("edit-adult").checked,
+          playback_mode: document.getElementById("edit-playback").value,
           add_tag_ids: [...next].filter((id) => !current.has(id)),
           remove_tag_ids: [...current].filter((id) => !next.has(id)),
         }),
@@ -1218,8 +1359,8 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     tuneRelative(1);
   } else if (event.key === "f" || event.key === "F") {
-    const channel = channels[focus.row];
-    if (channel) toggleFavorite(channel.id);
+    event.preventDefault();
+    toggleFullscreen();
   } else if (event.key === "s" || event.key === "S") {
     openSettings();
   } else if (event.key === "i" || event.key === "I") {

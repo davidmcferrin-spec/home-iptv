@@ -2,7 +2,7 @@
 
 Home IPTV is a personal, self-hosted app for a LAN. It imports M3U and M3U8 playlists and HDHomeRun lineups, checks each stream with ffprobe, and keeps a SQLite index with full-text search. Point it only at streams you have the rights to view. It does not ship channel lists, and it will fetch whatever URL you give it. Do not expose it to the public internet: there is no login.
 
-The browser plays a channel over WebRTC (WHEP). Low-latency HLS is the fallback when the WebRTC handshake cannot complete.
+The browser plays a channel over WebRTC (WHEP) when the video is WebRTC-safe. H.264 with B-frames or a High profile, and anything other than H.264, VP8, VP9, or AV1, plays over low-latency HLS instead. If the picture stalls for four seconds, the player switches to HLS. Each channel can override that with Auto, WebRTC, HLS, or Transcode.
 
 ## What it stores
 
@@ -29,11 +29,11 @@ The guide and API are published on port 9595 (`WEB_PORT`). The container listens
 
 The `worker` service probes streams with a bounded thread pool (`VERIFY_CONCURRENCY`, `VERIFY_TIMEOUT_SECONDS`) and repeats on `VERIFY_INTERVAL_MINUTES`. It also reimports any playlist that has `interval_minutes` set. Upload or URL import queues a check immediately; `POST /api/channels/{id}/verify` queues another one.
 
-MediaMTX fans a channel out to every viewer. The API publishes each channel into MediaMTX with one ffmpeg process, on demand, and stops it after the idle timeout with no readers. A second viewer of the same channel reuses that process. Published ports are 9595 for the guide, 8889 for WebRTC signaling, 8189/udp for WebRTC media, 8888 for LL-HLS, and 8554 for RTSP. The MediaMTX control API stays on the Docker network and is not published. Playback addresses are taken from the browser's request host. Settings can override them.
+MediaMTX fans a channel out to every viewer. The API publishes each channel into MediaMTX with one ffmpeg process, on demand, and stops it after the idle timeout with no readers. A second viewer of the same channel reuses that process. Published ports are 9595 for the guide, 8889 for WebRTC signaling, 8189/udp and 8189/tcp for WebRTC media, 8888 for LL-HLS, and 8554 for RTSP. MediaMTX does not advertise container bridge addresses. The MediaMTX control API stays on the Docker network and is not published. Playback addresses are taken from the browser's request host. Settings can override them.
 
 `POST /api/channels/{id}/watch` returns `whep_url` and `llhls_url`. `GET /api/channels/{id}/stream` reports `upstream_pulls` (0 or 1) and the MediaMTX reader list.
 
-ffmpeg remuxes with stream copy when video is WebRTC-capable (H.264, VP8, VP9, AV1) and audio is WebRTC-capable (Opus, PCMU, PCMA, G.722). Most IPTV sources are H.264 with AAC. AAC cannot be carried in WebRTC, so only the audio is transcoded to Opus. That is cheap. H.265/HEVC video is transcoded to H.264 with libx264 `ultrafast` and `zerolatency`, which can use a full core per active 720p or 1080p channel. Idle channels are stopped, so the cost is limited to channels someone is watching.
+ffmpeg copies video only when it is WebRTC-safe: VP8, VP9, AV1, or H.264 with no B-frames and a profile other than High. AAC is transcoded to Opus for WebRTC. H.264 with B-frames is published as-is and played over LL-HLS, which can decode those frames. HEVC and other video is transcoded to H.264 baseline with libx264 `veryfast`, no B-frames, and a two-second GOP, and that is what the Transcode override always does. Idle channels are stopped.
 
 HDHomeRun emulation is off until `PATCH /api/settings` sets `hdhr_emulation` to true. It then serves `/discover.json`, `/lineup.json`, and `/lineup_status.json`, and MPEG-TS at `/auto/v{guide}`. Those streams read the hub's local RTSP publish, so they do not open a second upstream pull. Adult channels are left out of the emulated lineup. The virtual tuner count (`emulated_tuner_count`, default 4) and a real tuner's `TunerCount` both return HTTP 503 with `all tuners busy` when a new channel would need a tuner that is already in use. UDP discovery replies are sent on port 65001 (`HDHR_UDP_PORT`). Bridge networking does not carry those broadcasts; use host networking or a macvlan on Unraid if Plex, Jellyfin, or Channels should find the virtual tuner by itself. A manual base URL works on the bridge.
 
@@ -100,7 +100,7 @@ The stack uses `/mnt/user/appdata/home-iptv/config` and `/mnt/user/appdata/home-
 | --- | --- | --- |
 | 9595 | TCP | Guide and API |
 | 8889 | TCP | WebRTC signaling (WHEP) |
-| 8189 | UDP | WebRTC media. This one must stay UDP. |
+| 8189 | UDP and TCP | WebRTC media. UDP is the usual path. TCP is the fallback. |
 | 8888 | TCP | Low-latency HLS fallback |
 | 8554 | TCP | RTSP inside the stack |
 | 65001 | UDP | HDHomeRun discovery |

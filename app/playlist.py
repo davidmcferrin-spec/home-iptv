@@ -38,6 +38,17 @@ def _split_extinf(body: str) -> tuple[str, str]:
     return body, ""
 
 
+def _logo(result: ParseResult, line_no: int, raw: str | None) -> str | None:
+    from app.logos import acceptable_logo
+
+    if not raw:
+        return None
+    cleaned = acceptable_logo(raw)
+    if cleaned is None:
+        result.warnings.append(f"line {line_no}: logo URL was rejected")
+    return cleaned
+
+
 def _blank(value: str | None) -> str | None:
     if value is None:
         return None
@@ -88,7 +99,7 @@ def parse_playlist(text: str) -> ParseResult:
             title=title,
             tvg_id=_blank(attrs.get("tvg-id")),
             tvg_name=_blank(attrs.get("tvg-name")),
-            logo_url=_blank(attrs.get("tvg-logo")),
+            logo_url=_logo(result, line_no, _blank(attrs.get("tvg-logo"))),
             tvg_language=_blank(attrs.get("tvg-language")),
             tvg_country=_blank(attrs.get("tvg-country")),
             group_title=_blank(attrs.get("group-title")),

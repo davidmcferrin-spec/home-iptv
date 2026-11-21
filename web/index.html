@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Home IPTV</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="16x16">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/styles.css">
   <script>
     (function () {
@@ -19,8 +22,11 @@
     <div id="stage">
       <video id="video" autoplay playsinline muted></video>
       <div id="stage-bars" aria-hidden="true"></div>
+      <div id="starting" hidden>Starting stream...</div>
       <div id="stage-chrome">
         <div id="stage-label">Live</div>
+        <button id="expand" type="button">Full window</button>
+        <button id="fullscreen" type="button">Fullscreen</button>
         <button id="sound" type="button">Sound</button>
       </div>
     </div>
@@ -234,6 +240,14 @@
         <input id="edit-country" type="text" list="country-list" autocomplete="off" maxlength="2">
       </label>
       <datalist id="country-list"></datalist>
+      <label>Playback
+        <select id="edit-playback">
+          <option value="auto">Auto</option>
+          <option value="webrtc">WebRTC</option>
+          <option value="hls">HLS</option>
+          <option value="transcode">Transcode</option>
+        </select>
+      </label>
       <label class="check" id="edit-adult-one">
         <input id="edit-adult" type="checkbox">
         Adult

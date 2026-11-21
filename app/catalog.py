@@ -281,7 +281,8 @@ def save_probe(conn: sqlite3.Connection, channel_id: int, result) -> None:
         UPDATE channels SET
             status = ?, status_detail = ?, last_checked_at = ?,
             width = ?, height = ?, video_codec = ?, audio_codec = ?,
-            audio_language = ?, bitrate = ?, updated_at = ?
+            audio_language = ?, bitrate = ?, video_profile = ?, has_b_frames = ?,
+            updated_at = ?
         WHERE id = ?
         """,
         (
@@ -294,6 +295,8 @@ def save_probe(conn: sqlite3.Connection, channel_id: int, result) -> None:
             result.audio_codec,
             result.audio_language,
             result.bitrate,
+            getattr(result, "video_profile", None),
+            getattr(result, "has_b_frames", None),
             utcnow(),
             channel_id,
         ),
@@ -390,6 +393,12 @@ def channel_json(row: sqlite3.Row, tags: list[dict]) -> dict[str, Any]:
         "width": row["width"],
         "height": row["height"],
         "video_codec": row["video_codec"],
+        "video_profile": row["video_profile"],
+        "has_b_frames": row["has_b_frames"],
+        "playback_mode": row["playback_mode"] or "auto",
+        "hidden": bool(row["hidden"]),
+        "notes": row["notes"],
+        "org_logo_url": row["org_logo_url"],
         "audio_codec": row["audio_codec"],
         "audio_language": row["audio_language"],
         "bitrate": row["bitrate"],
@@ -530,8 +539,25 @@ def set_manual_fields(
         assignments += ["title = ?", "title_source = 'manual'"]
         params.append(title)
     if "logo_url" in fields:
+        from app.logos import acceptable_logo
+
+        raw_logo = (fields["logo_url"] or "").strip() or None
+        if raw_logo and acceptable_logo(raw_logo) is None:
+            raise ValueError("logo URL is not a usable http(s) address")
         assignments += ["logo_url = ?", "logo_source = 'manual'"]
-        params.append((fields["logo_url"] or "").strip() or None)
+        params.append(raw_logo)
+    if "playback_mode" in fields:
+        mode = (fields["playback_mode"] or "auto").lower()
+        if mode not in {"auto", "webrtc", "hls", "transcode"}:
+            raise ValueError("unknown playback mode")
+        assignments += ["playback_mode = ?"]
+        params.append(mode)
+    if "hidden" in fields:
+        assignments += ["hidden = ?"]
+        params.append(1 if fields["hidden"] else 0)
+    if "notes" in fields:
+        assignments += ["notes = ?"]
+        params.append((fields["notes"] or "").strip() or None)
     if "tvg_id" in fields:
         tvg_id = (fields["tvg_id"] or "").strip() or None
         assignments += ["tvg_id = ?", "guide_source = 'manual'", "guide_match_id = ?"]

@@ -174,6 +174,12 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "channels", "guide_match_id", "TEXT")
         _ensure_column(conn, "channels", "programme_source", "TEXT")
         _ensure_column(conn, "channels", "title_source", "TEXT")
+        _ensure_column(conn, "channels", "video_profile", "TEXT")
+        _ensure_column(conn, "channels", "has_b_frames", "INTEGER")
+        _ensure_column(conn, "channels", "playback_mode", "TEXT NOT NULL DEFAULT 'auto'")
+        _ensure_column(conn, "channels", "org_logo_url", "TEXT")
+        _ensure_column(conn, "channels", "hidden", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "channels", "notes", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS epg_feeds (
