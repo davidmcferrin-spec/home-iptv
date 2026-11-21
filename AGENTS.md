@@ -12,6 +12,7 @@ Personal LAN app. It imports playlists and HDHomeRun lineups the operator is all
 - `app/verify.py` runs ffprobe. `app/worker.py` drains the queue and reimports playlists.
 - `app/hdhomerun.py` speaks the published HDHomeRun discovery and lineup HTTP API.
 - `app/hub.py` pulls each channel once with ffmpeg and publishes it to MediaMTX. WebRTC uses WHEP. HLS is the fallback, with a smooth buffer by default.
+- `app/media_names.py`, `app/media_paths.py`, and `app/media_scan.py` index folders under `/media`. `app/media_api.py` stores libraries, the TMDB key, and scan progress in SQLite. `/library` is the settings page. `app/media_play.py` chooses direct play, remux, or transcode.
 - `app/emulation.py` is the optional HDHomeRun device (off by default).
 - `app/epg.py` reads XMLTV.
 - `web/` is the set-top guide (HTML, CSS, and `guide.js`). Viewer defaults live in `localStorage`. The adult toggle lives in `sessionStorage`.

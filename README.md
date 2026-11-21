@@ -27,6 +27,8 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
 
 The guide and API are published on port 9595 (`WEB_PORT`). The container listens on 8080. SQLite lives in the `config` volume and uploads in the `data` volume. `PUID` and `PGID` default to `99` and `100`.
 
+The app container mounts the media share read-only at `/media` (`MEDIA_PATH`, default `/mnt/user/media`). On Unraid, point that path at the share that holds TV, Movies, and everything else, and leave it read-only. Library names, the folder under `/media`, and the TMDB key are saved from the Library page into SQLite. There is no environment file for them.
+
 The `worker` service probes streams with a bounded thread pool (`VERIFY_CONCURRENCY`, `VERIFY_TIMEOUT_SECONDS`) and repeats on `VERIFY_INTERVAL_MINUTES`. It also reimports any playlist that has `interval_minutes` set. Upload or URL import queues a check immediately; `POST /api/channels/{id}/verify` queues another one.
 
 MediaMTX fans a channel out to every viewer. The API publishes each channel into MediaMTX with one ffmpeg process, on demand, and stops it after the idle timeout with no readers. A second viewer of the same channel reuses that process. Published ports are 9595 for the guide, 8889 for WebRTC signaling, 8189/udp and 8189/tcp for WebRTC media, 8888 for HLS, and 8554 for RTSP. MediaMTX advertises its own interface addresses, and the app adds the browser's host to `webrtcAdditionalHosts` once the API answers. The MediaMTX control API stays on the Docker network and is not published. Playback addresses are taken from the browser's request host. Settings can override them.
