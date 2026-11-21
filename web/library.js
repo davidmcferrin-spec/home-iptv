@@ -221,11 +221,11 @@ async function attachPlayback(info, file, item) {
   document.getElementById("player").hidden = false;
   fillTrackSelects(info);
   [...video.querySelectorAll("track")].forEach((track) => track.remove());
-  if (info.mode === "direct") {
+  if (info.mode === "direct" || nativeHls()) {
     video.src = info.url;
     video.addEventListener("loadedmetadata", function seek() {
       video.removeEventListener("loadedmetadata", seek);
-      if (info.start > 1) video.currentTime = info.start;
+      if (info.mode === "direct" && info.start > 1) video.currentTime = info.start;
     });
   } else if (window.Hls && window.Hls.isSupported()) {
     hls = new window.Hls();
@@ -317,6 +317,21 @@ video.addEventListener("seeking", () => {
   });
 });
 
+function nativeHls() {
+  const touchMac = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || touchMac;
+}
+
+function enterVideoFullscreen() {
+  if (typeof video.webkitEnterFullscreen === "function") {
+    video.webkitEnterFullscreen();
+    return;
+  }
+  const request = video.requestFullscreen || video.webkitRequestFullscreen;
+  if (request) request.call(video);
+}
+
+document.getElementById("player-full").addEventListener("click", enterVideoFullscreen);
 document.getElementById("player-close").addEventListener("click", () => closePlayback().catch((err) => showError(err.message)));
 document.getElementById("player-watched").addEventListener("click", () => {
   if (!playState) return;
