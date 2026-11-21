@@ -1,5 +1,9 @@
+import json
 import logging
+import re
+import subprocess
 import threading
+import time
 from pathlib import Path
 
 import httpx
@@ -10,13 +14,18 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.db import connect, set_setting, setting, utcnow
 from app.media_paths import PathEscape, file_inside, library_directory, media_root, suggest_libraries
+from app.media_play import choose_mode, detect_accel, image_subtitle, text_subtitle, vtt_command
 from app.media_scan import scan_library
+from app.media_session import SessionBusy, SessionStartError, close_session, open_session, reap, session_dir
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 _scan_lock = threading.Lock()
 _scanning: set[int] = set()
 _KINDS = {"tv", "movies", "misc"}
+_SEGMENT = re.compile(r"^seg\d+\.ts$")
+_accel_cache = {"at": 0.0, "value": None}
+_reaper_started = False
 
 
 class LibraryBody(BaseModel):
@@ -37,6 +46,20 @@ class ProgressBody(BaseModel):
 
 def _conn():
     return connect(settings().database_path)
+
+
+def _ensure_reaper() -> None:
+    global _reaper_started
+    if _reaper_started:
+        return
+    _reaper_started = True
+
+    def loop() -> None:
+        while True:
+            time.sleep(10)
+            reap()
+
+    threading.Thread(target=loop, name="media-reaper", daemon=True).start()
 
 
 def start_scan(library_id: int) -> None:
@@ -240,6 +263,15 @@ def item_detail(item_id: int):
                 (item_id,),
             )
         ]
+        if row["kind"] == "show":
+            for child in payload["children"]:
+                child["children"] = [
+                    _item_json(conn, episode)
+                    for episode in conn.execute(
+                        "SELECT * FROM media_items WHERE parent_id = ? ORDER BY episode_number, sort_title",
+                        (child["id"],),
+                    )
+                ]
         return payload
     finally:
         conn.close()
@@ -291,7 +323,7 @@ def save_progress(file_id: int, body: ProgressBody):
             raise HTTPException(404, "file was not found")
         duration = body.duration if body.duration is not None else found["duration"]
         watched = 1 if body.watched else 0
-        if duration and body.position >= max(0, duration - 10) and not body.watched:
+        if duration and body.position >= max(duration - 10, duration * 0.9):
             watched = 1
         conn.execute(
             """
@@ -331,6 +363,164 @@ def continue_watching():
         conn.close()
 
 
+def _file_row(conn, file_id: int):
+    return conn.execute(
+        """
+        SELECT files.*, libraries.rel_path AS library_path
+        FROM media_files files
+        JOIN media_libraries libraries ON libraries.id = files.library_id
+        WHERE files.id = ?
+        """,
+        (file_id,),
+    ).fetchone()
+
+
+def _media_file(row) -> Path:
+    try:
+        directory = library_directory(media_root(), row["library_path"])
+        return file_inside(directory, row["rel_path"])
+    except PathEscape as exc:
+        raise HTTPException(403, "path must stay inside the library") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "file is missing") from exc
+
+
+@router.get("/api/media/accel")
+def accel():
+    now = time.monotonic()
+    if _accel_cache["value"] is not None and now - _accel_cache["at"] < 60:
+        return _accel_cache["value"]
+    value = detect_accel()
+    _accel_cache["at"] = now
+    _accel_cache["value"] = value
+    return value
+
+
+@router.get("/api/media/files/{file_id}/play")
+def play_file(
+    file_id: int,
+    start: float = 0,
+    audio: int = 0,
+    subtitle: int | None = None,
+):
+    _ensure_reaper()
+    conn = _conn()
+    try:
+        row = _file_row(conn, file_id)
+        if row is None:
+            raise HTTPException(404, "file was not found")
+        path = _media_file(row)
+        audio_tracks = json.loads(row["audio_tracks"] or "[]")
+        subtitle_tracks = json.loads(row["subtitle_tracks"] or "[]")
+        if audio < 0 or (audio_tracks and audio >= len(audio_tracks)):
+            raise HTTPException(400, "audio track was not found")
+        burn = None
+        vtt = None
+        if subtitle is not None:
+            if subtitle < 0 or subtitle >= len(subtitle_tracks):
+                raise HTTPException(400, "subtitle track was not found")
+            codec = subtitle_tracks[subtitle].get("codec")
+            if image_subtitle(codec):
+                burn = subtitle
+            elif text_subtitle(codec):
+                vtt = f"/api/media/files/{file_id}/subtitles/{subtitle_tracks[subtitle].get('index')}.vtt"
+            else:
+                raise HTTPException(400, f"subtitle codec {codec} is not supported")
+        mode = choose_mode(row["container"], row["video_codec"], [track.get("codec") or "" for track in audio_tracks])
+        payload = {
+            "file_id": file_id,
+            "mode": "direct" if mode == "direct" else "hls",
+            "plan": mode,
+            "start": max(0, start),
+            "duration": row["duration"],
+            "audio": audio_tracks,
+            "subtitles": subtitle_tracks,
+            "vtt": vtt,
+        }
+        if mode == "direct":
+            payload["url"] = f"/api/media/files/{file_id}/raw"
+            return payload
+        status = accel()
+        device = status["device"] if status.get("available") else None
+        try:
+            session = open_session(
+                source=str(path),
+                work_root=Path(settings().data_dir) / "media-hls",
+                mode=mode,
+                start=max(0, start),
+                audio_index=audio,
+                burn_subtitle=burn,
+                vaapi_device=device,
+            )
+        except SessionBusy as exc:
+            raise HTTPException(429, str(exc)) from exc
+        except SessionStartError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        payload["session"] = session.id
+        payload["url"] = f"/api/media/sessions/{session.id}/index.m3u8"
+        payload["file_start"] = session.file_start
+        return payload
+    finally:
+        conn.close()
+
+
+@router.get("/api/media/files/{file_id}/raw")
+def raw_file(file_id: int):
+    conn = _conn()
+    try:
+        row = _file_row(conn, file_id)
+        if row is None:
+            raise HTTPException(404, "file was not found")
+        return FileResponse(_media_file(row))
+    finally:
+        conn.close()
+
+
+@router.get("/api/media/files/{file_id}/subtitles/{stream_index}.vtt")
+def subtitle_vtt(file_id: int, stream_index: int):
+    conn = _conn()
+    try:
+        row = _file_row(conn, file_id)
+        if row is None:
+            raise HTTPException(404, "file was not found")
+        tracks = json.loads(row["subtitle_tracks"] or "[]")
+        if not any(track.get("index") == stream_index and text_subtitle(track.get("codec")) for track in tracks):
+            raise HTTPException(404, "text subtitle was not found")
+        path = _media_file(row)
+        dest = Path(settings().data_dir) / "media-vtt" / f"{file_id}-{stream_index}.vtt"
+        if not dest.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            proc = subprocess.run(vtt_command("ffmpeg", str(path), stream_index, str(dest)), capture_output=True, timeout=40, check=False)
+            if proc.returncode != 0 or not dest.is_file():
+                dest.unlink(missing_ok=True)
+                detail = proc.stderr.decode(errors="replace").strip().splitlines()
+                tail = detail[-1] if detail else f"ffmpeg exited {proc.returncode}"
+                raise HTTPException(502, f"subtitle extract failed: {tail}")
+        return FileResponse(dest, media_type="text/vtt")
+    finally:
+        conn.close()
+
+
+@router.get("/api/media/sessions/{session_id}/{name}")
+def session_file(session_id: str, name: str):
+    if name != "index.m3u8" and not _SEGMENT.match(name):
+        raise HTTPException(404, "segment was not found")
+    directory = session_dir(session_id)
+    if directory is None:
+        raise HTTPException(404, "transcode session was not found")
+    path = directory / name
+    if not path.is_file():
+        raise HTTPException(404, "segment is not ready")
+    media_type = "application/vnd.apple.mpegurl" if name.endswith(".m3u8") else "video/mp2t"
+    return FileResponse(path, media_type=media_type)
+
+
+@router.delete("/api/media/sessions/{session_id}")
+def delete_session(session_id: str):
+    close_session(session_id)
+    return {"closed": session_id}
+
+
 def _item_json(conn, row) -> dict:
     files = conn.execute(
         """
@@ -363,8 +553,8 @@ def _item_json(conn, row) -> dict:
                 "video_codec": item["video_codec"],
                 "width": item["width"],
                 "height": item["height"],
-                "audio_tracks": item["audio_tracks"],
-                "subtitle_tracks": item["subtitle_tracks"],
+                "audio_tracks": json.loads(item["audio_tracks"] or "[]"),
+                "subtitle_tracks": json.loads(item["subtitle_tracks"] or "[]"),
                 "position": item["position"] or 0,
                 "watched": bool(item["watched"]),
             }

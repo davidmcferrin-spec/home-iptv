@@ -1290,6 +1290,7 @@ body.library-page {
 
 .library-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 18px 0 8px;
@@ -1330,5 +1331,84 @@ body.library-page {
 
 @media (max-width: 720px) {
   .library-bar, #library { width: calc(100% - 20px); }
+  .library-bar { align-items: flex-start; }
+  #library-search { flex: 1 1 120px; min-width: 0; }
+  #library-tabs { order: 2; flex: 1 0 100%; }
+  #open-library-settings { margin-left: auto; }
   #library-form label, #tmdb-form label { min-width: 100%; }
+  #poster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+#library-search {
+  min-height: 44px;
+  min-width: 140px;
+  flex: 1;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0c0e14;
+  padding: 0 14px;
+}
+
+#library-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+#library-tabs button[aria-selected="true"] { outline: 2px solid var(--focus); }
+
+#poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+#poster-grid[hidden],
+#show-page[hidden],
+#details[hidden],
+#library-settings[hidden],
+#player[hidden] { display: none; }
+
+.show-poster { width: 160px; border-radius: 12px; display: block; margin: 8px 0; }
+
+.poster {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+}
+
+.poster-frame {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1a1e28;
+}
+
+.poster-frame img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; }
+.poster-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 28px; }
+.poster-title { padding: 8px 2px 0; }
+
+.episode, .episode-list button {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.detail-actions, #player-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#details, #show-page { margin-top: 8px; }
+#player[hidden] { display: none; }
+#player {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: #05060a;
+}
+#player-video { width: 100%; flex: 1; min-height: 0; background: black; }
+#player-bar { padding: 8px 12px 12px; }
+#player-bar select { min-height: 44px; background: #12151c; color: var(--text); border-radius: 8px; }

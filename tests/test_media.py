@@ -136,6 +136,113 @@ def test_scan_is_incremental_and_uses_local_poster(tmp_path):
     conn.close()
 
 
+def test_vaapi_failure_falls_back_to_cpu_and_the_cap_holds(tmp_path):
+    from app import media_session
+
+    calls = []
+
+    class FakeProc:
+        def __init__(self, code):
+            self.code = code
+
+        def poll(self):
+            return self.code
+
+        def terminate(self):
+            self.code = -15
+
+        def kill(self):
+            self.code = -9
+
+        def wait(self, timeout=0):
+            return self.code
+
+    def launch(command, directory):
+        calls.append(command)
+        if "h264_vaapi" in command:
+            return FakeProc(1)
+        (directory / "index.m3u8").write_text("#EXTM3U\n")
+        return FakeProc(None)
+
+    session = media_session.open_session(
+        source="/media/TV/show.mkv", work_root=tmp_path, mode="transcode", start=4,
+        audio_index=1, burn_subtitle=None, vaapi_device="/dev/dri/renderD128", launch=launch,
+    )
+    assert "h264_vaapi" in calls[0]
+    assert "libx264" in calls[1]
+    assert "-hwaccel" not in calls[1]
+    assert session.file_start == 4
+    second = media_session.open_session(
+        source="/media/TV/other.mkv", work_root=tmp_path, mode="remux", start=0,
+        audio_index=0, burn_subtitle=None, vaapi_device=None, launch=launch,
+    )
+    with pytest.raises(media_session.SessionBusy):
+        media_session.open_session(
+            source="/media/TV/third.mkv", work_root=tmp_path, mode="remux", start=0,
+            audio_index=0, burn_subtitle=None, vaapi_device=None, launch=launch,
+        )
+    media_session.close_session(session.id)
+    media_session.close_session(second.id)
+
+
+def test_play_endpoint_uses_direct_or_hls(client, monkeypatch, tmp_path):
+    media = tmp_path / "media"
+    folder = media / "Movies"
+    folder.mkdir(parents=True)
+    (folder / "Demo (2024).mp4").write_bytes(b"0123456789abcdef")
+    (folder / "Night (2020).mkv").write_bytes(b"mkv")
+    monkeypatch.setattr("app.media_paths.MEDIA_ROOT", media)
+    monkeypatch.setattr("app.media_api.start_scan", lambda library_id: None)
+    created = client.post("/api/media/libraries", json={"name": "Movies", "path": "Movies", "kind": "movies"})
+    assert created.status_code == 201, created.text
+    from app.config import settings as load_settings
+    from app.db import connect
+
+    conn = connect(load_settings().database_path)
+
+    def probe(path):
+        if path.suffix == ".mp4":
+            return ProbeResult(4, "mov,mp4,m4a", "h264", 640, 360, [{"index": 1, "codec": "aac", "language": "eng", "title": None, "channels": 2}], [{"index": 2, "codec": "subrip", "language": "eng", "title": None}])
+        return ProbeResult(4, "matroska", "hevc", 640, 360, [{"index": 1, "codec": "aac", "language": "eng", "title": None, "channels": 2}], [])
+
+    scan_library(conn, created.json()["id"], media, tmp_path / "data", probe=probe, thumbs=False)
+    conn.close()
+    opened = []
+
+    def fake_open(**kwargs):
+        opened.append(kwargs)
+
+        class Started:
+            id = "abc"
+            file_start = kwargs["start"]
+
+        return Started()
+
+    monkeypatch.setattr("app.media_api.open_session", fake_open)
+    items = client.get("/api/media/items?kind=movie").json()["items"]
+    by_title = {item["title"]: item for item in items}
+    direct = client.get(f"/api/media/files/{by_title['Demo']['files'][0]['id']}/play")
+    assert direct.status_code == 200, direct.text
+    assert direct.json()["mode"] == "direct"
+    assert direct.json()["url"].endswith("/raw")
+    ranged = client.get(direct.json()["url"], headers={"range": "bytes=0-3"})
+    assert ranged.status_code == 206
+    assert ranged.content == b"0123"
+    hevc = client.get(f"/api/media/files/{by_title['Night']['files'][0]['id']}/play?start=3&audio=0")
+    assert hevc.status_code == 200, hevc.text
+    assert hevc.json()["mode"] == "hls"
+    assert opened[0]["mode"] == "transcode"
+    assert opened[0]["start"] == 3
+    outside = tmp_path / "secret.mp4"
+    outside.write_bytes(b"nope")
+    conn = connect(load_settings().database_path)
+    conn.execute("UPDATE media_files SET rel_path = ? WHERE id = ?", ("../secret.mp4", by_title["Demo"]["files"][0]["id"]))
+    conn.commit()
+    conn.close()
+    blocked = client.get(f"/api/media/files/{by_title['Demo']['files'][0]['id']}/raw")
+    assert blocked.status_code == 403
+
+
 def test_library_api_rejects_paths_outside_media(client, monkeypatch, tmp_path):
     media = tmp_path / "media"
     (media / "TV").mkdir(parents=True)
