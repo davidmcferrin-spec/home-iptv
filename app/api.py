@@ -16,6 +16,8 @@ from app.catalog import (
     enqueue,
     programs_for,
     replace_epg,
+    remember_channels,
+    restore_channels,
     search_channels,
     set_manual_fields,
     import_lineup_channels,
@@ -30,6 +32,7 @@ from app.hdhomerun import (
     fetch_device,
     scan_lan,
 )
+from app.group_tags import filter_catalog, load_filter_prefs, merge_tags, save_filter_prefs
 from app.hub import MediaMTXError, StreamOffline, StreamStartError, TunersBusy
 from app.logos import cached_logo
 from app.public_url import is_loopback, playback_base, request_hostname, rewrite_playback
@@ -45,7 +48,7 @@ from app.playlist import MAX_PLAYLIST_BYTES, PlaylistParseError, parse_playlist
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-SORTS = {"title", "status", "language", "country", "number"}
+SORTS = {"title", "status", "language", "country", "number", "verified"}
 
 
 def _db(request: Request):
@@ -93,8 +96,32 @@ class BulkPatch(BaseModel):
     language: str | None = None
     country: str | None = None
     adult: bool | None = None
+    playback_mode: str | None = None
+    hidden: bool | None = None
+    delete: bool = False
+    verify: bool = False
     add_tag_ids: list[int] = Field(default_factory=list)
     remove_tag_ids: list[int] = Field(default_factory=list)
+
+
+class FilterPrefsIn(BaseModel):
+    hidden: list[str] = Field(default_factory=list)
+    pinned: list[str] = Field(default_factory=list)
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+class MergeTagsIn(BaseModel):
+    source: str
+    target: str
+
+
+class NumberAssignment(BaseModel):
+    id: int
+    guide_number: str
+
+
+class RenumberIn(BaseModel):
+    assignments: list[NumberAssignment]
 
 
 class DeviceIn(BaseModel):
@@ -253,6 +280,9 @@ def list_channels(
     language: list[str] = Query(default=[]),
     country: list[str] = Query(default=[]),
     include_adult: bool = False,
+    include_hidden: bool = False,
+    playback_mode: str | None = None,
+    source: str | None = None,
     sort: str = "number",
     order: str = "asc",
     limit: int = 200,
@@ -264,6 +294,10 @@ def list_channels(
         raise HTTPException(400, "unknown order")
     if status is not None and status not in {"unknown", "online", "offline"}:
         raise HTTPException(400, "unknown status")
+    if playback_mode is not None and playback_mode not in {"auto", "webrtc", "hls", "transcode"}:
+        raise HTTPException(400, "unknown playback mode")
+    if source is not None and source not in {"playlist", "hdhomerun"}:
+        raise HTTPException(400, "unknown source")
     limit = min(max(limit, 1), 1000)
     offset = max(offset, 0)
     conn = _db(request)
@@ -276,6 +310,9 @@ def list_channels(
             languages=[item.lower() for item in language],
             countries=[item.upper() for item in country],
             include_adult=include_adult,
+            include_hidden=include_hidden,
+            playback_mode=playback_mode,
+            source=source,
             sort=sort,
             order=order,
             limit=limit,
@@ -496,17 +533,123 @@ def stream_status(request: Request, channel_id: int, include_adult: bool = False
     return request.app.state.hub.status(channel_id)
 
 
+@router.get("/api/guide/channels")
+def guide_channel_search(request: Request, q: str = "") -> dict:
+    import json
+
+    from app.guide_data import cache_dir
+
+    path = cache_dir(request.app.state.cfg.database_path) / "channels.json"
+    if not path.is_file() or not q.strip():
+        return {"channels": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"channels": []}
+    needle = q.casefold()
+    hits = []
+    for item in payload:
+        name = item.get("name") or ""
+        ident = item.get("id") or ""
+        if needle not in name.casefold() and needle not in ident.casefold():
+            continue
+        hits.append({"id": ident, "name": name})
+        if len(hits) >= 20:
+            break
+    return {"channels": hits}
+
+
+@router.get("/api/guide-filters")
+def guide_filters(request: Request, include_adult: bool = False) -> dict:
+    conn = _db(request)
+    try:
+        return filter_catalog(conn, include_adult)
+    finally:
+        conn.close()
+
+
+@router.put("/api/guide-filters")
+def save_guide_filters(request: Request, body: FilterPrefsIn) -> dict:
+    conn = _db(request)
+    try:
+        save_filter_prefs(conn, body.model_dump())
+        conn.commit()
+        return filter_catalog(conn, True)
+    finally:
+        conn.close()
+
+
+@router.post("/api/guide-filters/merge")
+def merge_guide_filters(request: Request, body: MergeTagsIn) -> dict:
+    conn = _db(request)
+    try:
+        try:
+            merge_tags(conn, body.source, body.target)
+        except KeyError:
+            raise HTTPException(404, "tag not found") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        conn.commit()
+        return filter_catalog(conn, True)
+    finally:
+        conn.close()
+
+
+@router.post("/api/channels/undo")
+def undo_channels(request: Request) -> dict:
+    conn = _db(request)
+    try:
+        try:
+            restored = restore_channels(conn)
+        except KeyError:
+            raise HTTPException(404, "nothing to undo") from None
+        except (ValueError, sqlite3.Error) as exc:
+            raise HTTPException(400, f"undo failed: {exc}") from exc
+        conn.commit()
+        return {"restored": restored}
+    finally:
+        conn.close()
+
+
+@router.post("/api/channels/renumber")
+def renumber_channels(request: Request, body: RenumberIn) -> dict:
+    if not body.assignments:
+        raise HTTPException(400, "assignments is empty")
+    conn = _db(request)
+    try:
+        remember_channels(conn, [item.id for item in body.assignments])
+        for item in body.assignments:
+            try:
+                set_manual_fields(conn, item.id, {"guide_number": item.guide_number})
+            except KeyError:
+                raise HTTPException(404, f"channel {item.id} not found") from None
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+        conn.commit()
+        return {"updated": len(body.assignments)}
+    finally:
+        conn.close()
+
+
 @router.post("/api/channels/bulk")
 def bulk_channels(request: Request, body: BulkPatch) -> dict:
     if not body.ids:
         raise HTTPException(400, "ids is empty")
     fields = {}
     incoming = body.model_dump(exclude_unset=True)
-    for key in ("language", "country", "adult"):
+    for key in ("language", "country", "adult", "playback_mode", "hidden"):
         if key in incoming:
             fields[key] = incoming[key]
     conn = _db(request)
     try:
+        remember_channels(conn, body.ids)
+        if body.delete:
+            for channel_id in body.ids:
+                if conn.execute("SELECT id FROM channels WHERE id = ?", (channel_id,)).fetchone() is None:
+                    raise HTTPException(404, f"channel {channel_id} not found")
+                conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
+            conn.commit()
+            return {"deleted": len(body.ids)}
         for channel_id in body.ids:
             row = conn.execute("SELECT id FROM channels WHERE id = ?", (channel_id,)).fetchone()
             if row is None:
@@ -527,6 +670,8 @@ def bulk_channels(request: Request, body: BulkPatch) -> dict:
                     "DELETE FROM channel_tags WHERE channel_id = ? AND tag_id = ?",
                     (channel_id, tag_id),
                 )
+            if body.verify:
+                enqueue(conn, channel_id)
         conn.commit()
         rows = conn.execute(
             "SELECT * FROM channels WHERE id IN (%s) ORDER BY guide_sort, id" % ",".join("?" for _ in body.ids),

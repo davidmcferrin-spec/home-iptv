@@ -33,7 +33,11 @@
     <div id="dim" hidden></div>
     <div id="frame">
     <header id="topbar">
-      <div id="chips" role="tablist" aria-label="Filters"></div>
+      <div id="chip-bar">
+        <div id="chips" role="tablist" aria-label="Filters"></div>
+        <button id="more-chip" type="button" class="chip">More</button>
+        <div id="more-panel" hidden></div>
+      </div>
       <div id="clock-block">
         <div id="clock-time">
           <span id="clock">--:--</span>
@@ -70,7 +74,7 @@
       <button id="ch-down" type="button">CH-</button>
       <button id="ch-up" type="button">CH+</button>
       <button id="open-import" type="button">Sources</button>
-      <button id="open-editor" type="button">Edit</button>
+      <a class="chip" id="open-channels" href="/channels">Channels</a>
       <button id="open-settings" type="button">Settings</button>
     </div>
   </div>
@@ -211,68 +215,16 @@
         <input id="set-adult" type="checkbox">
         Show adult content for this browser session
       </label>
+      <h3>Guide filters</h3>
+      <div id="filter-editor"></div>
       <div class="settings-actions">
         <button type="submit">Save</button>
         <button id="close-settings" type="button">Close</button>
       </div>
     </form>
   </div>
-  <div id="editor" hidden>
-    <form id="editor-form">
-      <h2 id="editor-title">Edit channel</h2>
-      <p id="editor-note">A value saved here is marked manual and stays through reimport.</p>
-      <div id="editor-single">
-        <label>Name
-          <input id="edit-title" type="text" maxlength="200" autocomplete="off">
-        </label>
-        <label>Logo URL
-          <input id="edit-logo" type="url" autocomplete="off">
-        </label>
-        <label>Guide match
-          <input id="edit-guide" type="text" maxlength="200" autocomplete="off">
-        </label>
-      </div>
-      <label>Language
-        <input id="edit-language" type="text" list="language-list" autocomplete="off" maxlength="16">
-      </label>
-      <datalist id="language-list"></datalist>
-      <label>Country
-        <input id="edit-country" type="text" list="country-list" autocomplete="off" maxlength="2">
-      </label>
-      <datalist id="country-list"></datalist>
-      <label>Playback
-        <select id="edit-playback">
-          <option value="auto">Auto</option>
-          <option value="webrtc">WebRTC</option>
-          <option value="hls">HLS</option>
-          <option value="transcode">Transcode</option>
-        </select>
-      </label>
-      <label class="check" id="edit-adult-one">
-        <input id="edit-adult" type="checkbox">
-        Adult
-      </label>
-      <label id="edit-adult-many">Adult
-        <select id="edit-adult-bulk">
-          <option value="">Leave unchanged</option>
-          <option value="1">Adult</option>
-          <option value="0">Not adult</option>
-        </select>
-      </label>
-      <div id="edit-tag-list"></div>
-      <label>Tag
-        <input id="edit-tag" type="text" list="tag-list" autocomplete="off" maxlength="80">
-      </label>
-      <datalist id="tag-list"></datalist>
-      <button id="edit-add-tag" type="button">Add tag</button>
-      <p id="editor-error" role="alert"></p>
-      <div class="settings-actions">
-        <button type="submit">Save</button>
-        <button id="close-editor" type="button">Close</button>
-      </div>
-    </form>
-  </div>
   <script src="/static/vendor/hls.min.js"></script>
+  <script src="/static/filters.js"></script>
   <script src="/static/guide.js"></script>
 </body>
 </html>

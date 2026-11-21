@@ -36,17 +36,20 @@ def ensure_tag(conn: sqlite3.Connection, name: str) -> int:
 
 
 def _replace_group_tag(conn: sqlite3.Connection, channel_id: int, old_group: str | None, new_group: str | None) -> None:
+    from app.group_tags import group_tag_names
+
     if old_group and old_group != new_group:
-        conn.execute(
-            """
-            DELETE FROM channel_tags
-            WHERE channel_id = ?
-              AND tag_id = (SELECT id FROM tags WHERE name = ? COLLATE NOCASE)
-            """,
-            (channel_id, old_group),
-        )
-    if new_group:
-        tag_id = ensure_tag(conn, new_group)
+        for name in [old_group, *group_tag_names(old_group)]:
+            conn.execute(
+                """
+                DELETE FROM channel_tags
+                WHERE channel_id = ?
+                  AND tag_id = (SELECT id FROM tags WHERE name = ? COLLATE NOCASE)
+                """,
+                (channel_id, name),
+            )
+    for name in group_tag_names(new_group):
+        tag_id = ensure_tag(conn, name)
         conn.execute(
             "INSERT INTO channel_tags(channel_id, tag_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
             (channel_id, tag_id),
@@ -423,14 +426,28 @@ def search_channels(
     order: str,
     limit: int,
     offset: int,
+    include_hidden: bool = False,
+    playback_mode: str | None = None,
+    source: str | None = None,
 ) -> dict[str, Any]:
-    where, params = _filters(q, tags, status, languages, countries, include_adult)
+    where, params = _filters(
+        q,
+        tags,
+        status,
+        languages,
+        countries,
+        include_adult,
+        include_hidden,
+        playback_mode,
+        source,
+    )
     sort_sql = {
         "title": "c.title COLLATE NOCASE",
         "status": "c.status",
         "language": "c.language COLLATE NOCASE",
         "country": "c.country COLLATE NOCASE",
         "number": "c.guide_sort",
+        "verified": "c.last_checked_at",
     }[sort]
     direction = "DESC" if order == "desc" else "ASC"
     total = conn.execute(f"SELECT COUNT(*) AS n FROM channels c {where}", params).fetchone()["n"]
@@ -457,11 +474,23 @@ def _filters(
     languages: list[str],
     countries: list[str],
     include_adult: bool,
+    include_hidden: bool = False,
+    playback_mode: str | None = None,
+    source: str | None = None,
 ) -> tuple[str, list]:
     clauses = ["1 = 1"]
     params: list = []
     if not include_adult:
         clauses.append("c.adult = 0")
+    if not include_hidden:
+        clauses.append("c.hidden = 0")
+    if playback_mode:
+        clauses.append("c.playback_mode = ?")
+        params.append(playback_mode)
+    if source == "playlist":
+        clauses.append("c.playlist_id IS NOT NULL")
+    elif source == "hdhomerun":
+        clauses.append("c.device_id IS NOT NULL")
     if status:
         clauses.append("c.status = ?")
         params.append(status)
@@ -508,6 +537,68 @@ def _fts_query(q: str) -> str:
     if not tokens:
         return ""
     return " AND ".join(f'"{token}"' for token in tokens)
+
+
+def remember_channels(conn: sqlite3.Connection, channel_ids: list[int]) -> None:
+    import json
+
+    from app.db import set_setting
+
+    payload = []
+    for channel_id in channel_ids:
+        row = conn.execute("SELECT * FROM channels WHERE id = ?", (channel_id,)).fetchone()
+        if row is None:
+            continue
+        tags = [
+            item["tag_id"]
+            for item in conn.execute("SELECT tag_id FROM channel_tags WHERE channel_id = ?", (channel_id,))
+        ]
+        programs = [dict(item) for item in conn.execute("SELECT * FROM programs WHERE channel_id = ?", (channel_id,))]
+        payload.append({"channel": dict(row), "tag_ids": tags, "programs": programs})
+    set_setting(conn, "channel_undo", json.dumps(payload))
+
+
+def restore_channels(conn: sqlite3.Connection) -> int:
+    import json
+
+    from app.db import set_setting, setting
+
+    raw = setting(conn, "channel_undo")
+    if not raw:
+        raise KeyError("nothing to undo")
+    payload = json.loads(raw)
+    for item in payload:
+        data = item["channel"]
+        columns = list(data)
+        exists = conn.execute("SELECT id FROM channels WHERE id = ?", (data["id"],)).fetchone()
+        if exists is None:
+            marks = ",".join("?" for _ in columns)
+            conn.execute(
+                f"INSERT INTO channels ({', '.join(columns)}) VALUES ({marks})",
+                [data[column] for column in columns],
+            )
+        else:
+            changing = [column for column in columns if column != "id"]
+            conn.execute(
+                f"UPDATE channels SET {', '.join(f'{column} = ?' for column in changing)} WHERE id = ?",
+                [data[column] for column in changing] + [data["id"]],
+            )
+        conn.execute("DELETE FROM channel_tags WHERE channel_id = ?", (data["id"],))
+        for tag_id in item["tag_ids"]:
+            conn.execute(
+                "INSERT INTO channel_tags(channel_id, tag_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                (data["id"], tag_id),
+            )
+        conn.execute("DELETE FROM programs WHERE channel_id = ?", (data["id"],))
+        for program in item["programs"]:
+            names = list(program)
+            marks = ",".join("?" for _ in names)
+            conn.execute(
+                f"INSERT INTO programs ({', '.join(names)}) VALUES ({marks})",
+                [program[name] for name in names],
+            )
+    set_setting(conn, "channel_undo", "")
+    return len(payload)
 
 
 def set_manual_fields(

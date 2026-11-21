@@ -65,6 +65,13 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(emulation_router)
 
+    @app.get("/channels")
+    def channels_page():
+        page = WEB_DIR / "channels.html"
+        if not page.is_file():
+            raise HTTPException(404, "channel manager is not installed")
+        return FileResponse(page)
+
     @app.get("/")
     def home():
         index = WEB_DIR / "index.html"

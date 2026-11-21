@@ -270,44 +270,76 @@ function logoNode(channel) {
   return img;
 }
 
+function chipButton(item) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "chip";
+  button.setAttribute("role", "tab");
+  button.setAttribute("aria-selected", item.id === chip ? "true" : "false");
+  button.textContent = item.label;
+  button.addEventListener("click", () => {
+    chip = item.id;
+    focus = { row: 0, col: 0 };
+    document.getElementById("more-panel").hidden = true;
+    loadGuide().catch((err) => toast(err.message));
+  });
+  return button;
+}
+
 function renderChips() {
   const host = document.getElementById("chips");
+  const panel = document.getElementById("more-panel");
   host.innerHTML = "";
-  const view = loadView();
-  const items = [{ id: "all", label: "All channels" }];
-  if (view.country || view.languages.length || view.tags.length) items.push({ id: "saved", label: "My view" });
-  items.push(
+  panel.innerHTML = "";
+  const row = [
+    { id: "all", label: "All" },
     { id: "favorites", label: "Favorites" },
+  ];
+  const extra = [
     { id: "popular", label: "Most Popular" },
     { id: "status:online", label: "Online" },
     { id: "status:offline", label: "Offline" },
     { id: "status:unknown", label: "Unchecked" },
-  );
-  const tags = new Set();
+  ];
   const languages = new Set();
   const countries = new Set();
   catalog.forEach((channel) => {
-    channel.tags.forEach((tag) => tags.add(tag.name));
     if (channel.language) languages.add(channel.language);
     if (channel.country) countries.add(channel.country);
   });
-  [...tags].sort().forEach((name) => items.push({ id: `tag:${name}`, label: name }));
-  [...languages].sort().forEach((code) => items.push({ id: `lang:${code}`, label: displayName("language", code) }));
-  [...countries].sort().forEach((code) => items.push({ id: `country:${code}`, label: displayName("region", code) }));
-  items.forEach((item) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "chip";
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-selected", item.id === chip ? "true" : "false");
-    button.textContent = item.label;
-    button.addEventListener("click", () => {
-      chip = item.id;
-      focus = { row: 0, col: 0 };
-      loadGuide().catch((err) => toast(err.message));
-    });
-    host.appendChild(button);
-  });
+  [...languages].sort().forEach((code) => extra.push({ id: `lang:${code}`, label: displayName("language", code) }));
+  [...countries].sort().forEach((code) => extra.push({ id: `country:${code}`, label: displayName("region", code) }));
+  loadGuideFilters(showAdult()).then((data) => {
+    const visible = data.tags.filter((tag) => !tag.hidden && (showAdult() || !tag.adult));
+    const pinnedNames = data.pinned.map((name) => name.toLowerCase());
+    const pinned = pinnedNames.map((name) => visible.find((tag) => tag.name.toLowerCase() === name)).filter(Boolean);
+    const rest = visible
+      .filter((tag) => !pinnedNames.includes(tag.name.toLowerCase()))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const limit = isPhone() ? 0 : (window.innerWidth < 1100 ? 6 : 8);
+    const shown = [...pinned, ...rest].slice(0, limit);
+    const shownNames = new Set(shown.map((tag) => tag.name.toLowerCase()));
+    shown.forEach((tag) => row.push({ id: `tag:${tag.name}`, label: tag.label }));
+    visible
+      .filter((tag) => !shownNames.has(tag.name.toLowerCase()))
+      .forEach((tag) => extra.push({ id: `tag:${tag.name}`, label: tag.label }));
+    row.forEach((item) => host.appendChild(chipButton(item)));
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = "Search filters";
+    search.setAttribute("aria-label", "Search filters");
+    const list = document.createElement("div");
+    const paint = () => {
+      list.innerHTML = "";
+      const needle = search.value.trim().toLowerCase();
+      extra.filter((item) => !needle || item.label.toLowerCase().includes(needle)).forEach((item) => {
+        list.appendChild(chipButton(item));
+      });
+    };
+    search.addEventListener("input", paint);
+    panel.append(search, list);
+    paint();
+  }).catch((err) => toast(err.message));
 }
 
 function renderInfo() {
@@ -387,7 +419,6 @@ function renderGuide() {
     tuneButton.appendChild(Object.assign(document.createElement("span"), { className: "channel-name", textContent: channel.title }));
     tuneButton.appendChild(Object.assign(document.createElement("span"), { className: `channel-status ${channel.status || "unknown"}`, textContent: statusLabel(channel) }));
     tuneButton.addEventListener("click", () => tune(channel));
-    cell.appendChild(pickBox(channel));
     cell.appendChild(tuneButton);
     const heart = document.createElement("button");
     heart.type = "button";
@@ -463,28 +494,8 @@ function renderPhone() {
     row.querySelector(".next").textContent = `Next  ${next ? next.title : "No schedule"}`;
     row.prepend(logoNode(channel));
     row.addEventListener("click", () => tune(channel));
-    const wrap = document.createElement("div");
-    wrap.className = "phone-wrap";
-    wrap.appendChild(pickBox(channel));
-    wrap.appendChild(row);
-    list.appendChild(wrap);
+    list.appendChild(row);
   });
-}
-
-function pickBox(channel) {
-  const pick = document.createElement("input");
-  pick.type = "checkbox";
-  pick.className = "pick";
-  pick.checked = selectedIds.has(channel.id);
-  pick.setAttribute("aria-label", `Select ${channel.title}`);
-  pick.addEventListener("click", (event) => event.stopPropagation());
-  pick.addEventListener("change", () => {
-    if (pick.checked) selectedIds.add(channel.id);
-    else selectedIds.delete(channel.id);
-    const button = document.getElementById("open-editor");
-    button.textContent = selectedIds.size > 1 ? `Edit ${selectedIds.size}` : "Edit";
-  });
-  return pick;
 }
 
 function placeDim() {
@@ -498,7 +509,8 @@ function placeDim() {
   const box = document.getElementById("preview").getBoundingClientRect();
   dim.style.cssText = `top:${box.top}px;left:${box.left}px;width:${box.width}px;height:${box.height}px;`;
   dim.hidden = false;
-  chrome.style.cssText = `position:fixed;z-index:6;top:${box.top}px;left:${box.left}px;width:${box.width}px;height:${box.height}px;`;
+  if (chrome.parentElement !== document.body) document.body.appendChild(chrome);
+  chrome.style.cssText = `position:fixed;z-index:12;top:${box.top}px;left:${box.left}px;width:${box.width}px;height:${box.height}px;pointer-events:none;`;
 }
 
 function render() {
@@ -908,7 +920,11 @@ function openSettings() {
   });
   document.getElementById("set-sort").value = view.sort;
   document.getElementById("set-adult").checked = showAdult();
+  document.getElementById("more-panel").hidden = true;
   document.getElementById("settings").hidden = false;
+  renderFilterEditor(document.getElementById("filter-editor"), () => {
+    loadGuide().catch((err) => toast(err.message));
+  });
   loadServerSettings().catch((err) => toast(err.message));
 }
 
@@ -1075,12 +1091,10 @@ document.getElementById("feed-url").addEventListener("keydown", (event) => {
     addFeed().catch((err) => toast(err.message));
   }
 });
-document.getElementById("open-editor").addEventListener("click", openEditor);
-document.getElementById("close-editor").addEventListener("click", () => {
-  document.getElementById("editor").hidden = true;
+document.getElementById("more-chip").addEventListener("click", () => {
+  const panel = document.getElementById("more-panel");
+  panel.hidden = !panel.hidden;
 });
-document.getElementById("edit-add-tag").addEventListener("click", addEditorTag);
-document.getElementById("editor-form").addEventListener("submit", saveEditor);
 document.getElementById("copy-playlist").addEventListener("click", () => copyField("vlc-playlist"));
 document.getElementById("copy-guide").addEventListener("click", () => copyField("vlc-guide"));
 document.getElementById("open-import").addEventListener("click", openImport);
@@ -1320,19 +1334,19 @@ async function saveEditor(event) {
 document.addEventListener("keydown", (event) => {
   const settingsOpen = !document.getElementById("settings").hidden;
   const importOpen = !document.getElementById("import").hidden;
-  const editorOpen = !document.getElementById("editor").hidden;
   if (event.key === "Escape") {
     document.getElementById("settings").hidden = true;
-    document.getElementById("editor").hidden = true;
+    document.getElementById("more-panel").hidden = true;
     closeImport();
     document.documentElement.classList.remove("video-full");
+    if (document.fullscreenElement) document.exitFullscreen();
     document.getElementById("back-guide").hidden = true;
     return;
   }
   if (event.target.closest("input, textarea, select")) return;
-  if (settingsOpen || importOpen || editorOpen) return;
+  if (settingsOpen || importOpen) return;
   if (event.key === "e" || event.key === "E") {
-    openEditor();
+    window.location.href = "/channels";
     return;
   }
   if (event.key === "ArrowDown") {

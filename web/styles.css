@@ -157,12 +157,68 @@ button:focus-visible,
   margin-bottom: 18px;
 }
 
+#chip-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 280px);
+  min-width: 0;
+  position: relative;
+}
+
 #chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+#more-panel {
+  position: absolute;
+  top: 52px;
+  left: 0;
+  z-index: 6;
+  width: min(420px, 80vw);
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--panel, #151a22);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+#more-panel input { width: 100%; margin-bottom: 8px; }
+#more-panel .chip { margin: 0 8px 8px 0; }
+
+#manager { padding: 16px; }
+.manager-bar, #bulk-bar, .filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  max-width: calc(100% - 280px);
+  align-items: center;
+  margin-bottom: 12px;
 }
+#manager input, #manager select, #manager textarea, #drawer input, #drawer select, #drawer textarea {
+  min-height: 44px;
+}
+#table-wrap { overflow: auto; max-height: calc(100vh - 220px); }
+#channel-table { width: 100%; border-collapse: collapse; }
+#channel-table th, #channel-table td { text-align: left; padding: 6px; white-space: nowrap; }
+#channel-table input, #channel-table select { min-width: 72px; }
+#drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100%);
+  overflow: auto;
+  padding: 16px;
+  background: #121820;
+  z-index: 40;
+}
+.filter-row input[type="text"] { width: auto; min-width: 160px; flex: 1; }
+.filter-note { color: var(--dim, #9aa3b2); }
 
 .chip {
   flex: none;
@@ -246,6 +302,7 @@ button:focus-visible,
   min-height: 220px;
   flex: none;
   border-radius: 12px;
+  pointer-events: none;
 }
 
 #info-kicker {
@@ -670,12 +727,14 @@ html.is-phone #frame { padding: 0 12px 96px; }
 
 html.is-phone #topbar { flex-wrap: wrap; margin-bottom: 8px; }
 html.is-phone #clock-block { order: 1; margin-left: auto; }
-html.is-phone #chips {
+html.is-phone #chip-bar {
   order: 2;
   flex: 1 0 100%;
   max-width: 100%;
+}
+html.is-phone #chips {
   flex-wrap: nowrap;
-  overflow-x: auto;
+  overflow: hidden;
 }
 html.is-phone #clock { font-size: 32px; }
 html.is-phone #info { display: none; }
