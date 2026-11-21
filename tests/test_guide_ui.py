@@ -579,3 +579,97 @@ def test_guide_touch_scrolls_in_webkit(playwright, guide_url):
                 context.close()
     finally:
         webkit.close()
+
+
+ANDROID_CHROME = (
+    "Mozilla/5.0 (Linux; Android 14; SM-X810) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def _cdp_drag(page, x, y, dy):
+    session = page.context.new_cdp_session(page)
+    session.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+    for step in range(1, 13):
+        session.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y + dy * step / 12}]})
+    session.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+
+
+def test_guide_assets_are_not_cached_blindly(guide_url):
+    page = httpx.get(f"{guide_url}/", timeout=10)
+    assert page.headers.get("cache-control") == "no-cache"
+    assert "serviceWorker" not in page.text
+    assert "/static/styles.css?v=" in page.text
+    assert "/static/guide.js?v=" in page.text
+    for path in ("/static/styles.css", "/static/guide.js"):
+        asset = httpx.get(f"{guide_url}{path}", timeout=10)
+        assert asset.status_code == 200
+        assert asset.headers.get("cache-control") == "no-cache"
+
+
+def test_tablet_touch_drag_scrolls_the_guide(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    _upload_many(guide_url)
+    sizes = ((1600, 900), (1600, 1000), (800, 1280), (1280, 800), (1340, 800), (753, 1205))
+    for width, height in sizes:
+        context = browser.new_context(
+            viewport={"width": width, "height": height},
+            has_touch=True,
+            is_mobile=True,
+            device_scale_factor=1.75,
+            user_agent=ANDROID_CHROME,
+        )
+        page = context.new_page()
+        try:
+            page.goto(guide_url, wait_until="domcontentloaded")
+            page.locator("#guide-scroll .channel-name").first.wait_for()
+            assert page.evaluate("() => !document.documentElement.classList.contains('is-phone')")
+            if (width, height) == (1600, 900):
+                page.evaluate(
+                    """() => {
+                      document.getElementById('info-title').textContent = 'Tonight: a long programme title that keeps going '.repeat(12);
+                      document.getElementById('info-episode').textContent = 'Season 3, episode 14, part two, with a long subtitle '.repeat(8);
+                      document.getElementById('info-meta').textContent = 'Unchecked 1920x1080 h264 aac '.repeat(12);
+                      document.getElementById('info-desc').textContent = 'A synopsis that would fill the screen. '.repeat(40);
+                    }"""
+                )
+            metrics = page.evaluate(
+                """() => {
+                  const scroller = document.getElementById('guide-scroll');
+                  const box = scroller.getBoundingClientRect();
+                  const x = box.x + box.width * 0.62;
+                  const y = box.y + Math.min(box.height * 0.45, 180);
+                  const hit = document.elementFromPoint(x, y);
+                  return {
+                    client: scroller.clientHeight,
+                    scroll: scroller.scrollHeight,
+                    x, y,
+                    hit: hit ? hit.className : '',
+                    touch: hit ? getComputedStyle(hit).touchAction : '',
+                    inGuide: !!(hit && scroller.contains(hit)),
+                    info: document.getElementById('info').getBoundingClientRect().height,
+                  };
+                }"""
+            )
+            assert metrics["client"] >= 200, metrics
+            assert metrics["scroll"] > metrics["client"] + 200, metrics
+            assert metrics["inGuide"], metrics
+            assert metrics["touch"] == "manipulation", metrics
+            assert metrics["info"] <= 200, metrics
+            if (width, height) == (1600, 900):
+                page.screenshot(path=str(artifacts / "guide-tablet-after-1600x900-top.png"))
+            _cdp_drag(page, metrics["x"], metrics["y"], -280)
+            page.wait_for_timeout(200)
+            moved = page.evaluate(
+                """() => ({
+                  top: document.getElementById('guide-scroll').scrollTop,
+                  page: document.scrollingElement.scrollTop,
+                })"""
+            )
+            assert moved["top"] > 40, moved
+            assert moved["page"] == 0, moved
+            if (width, height) == (1600, 900):
+                page.screenshot(path=str(artifacts / "guide-tablet-after-1600x900.png"))
+        finally:
+            context.close()

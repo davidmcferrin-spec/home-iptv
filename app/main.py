@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -6,7 +7,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api import router
@@ -22,6 +23,31 @@ from app.worker import worker_loop
 
 log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+_ASSET_URL = re.compile(r"/static/[^\"']+")
+
+
+class FreshStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if path.endswith((".css", ".js", ".html")):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def _asset_stamp() -> str:
+    latest = 0
+    for path in WEB_DIR.rglob("*"):
+        if path.is_file() and path.suffix in {".css", ".js"}:
+            latest = max(latest, int(path.stat().st_mtime))
+    return str(latest)
+
+
+def _page(path: Path) -> HTMLResponse:
+    if not path.is_file():
+        raise HTTPException(404, "page is not installed")
+    stamp = _asset_stamp()
+    html = _ASSET_URL.sub(lambda match: f"{match.group(0)}?v={stamp}", path.read_text(encoding="utf-8"))
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 def _advertise_when_ready(stop: threading.Event, hub: Hub) -> None:
@@ -92,24 +118,15 @@ def create_app() -> FastAPI:
 
     @app.get("/library")
     def library_page():
-        page = WEB_DIR / "library.html"
-        if not page.is_file():
-            raise HTTPException(404, "library page is not installed")
-        return FileResponse(page)
+        return _page(WEB_DIR / "library.html")
 
     @app.get("/channels")
     def channels_page():
-        page = WEB_DIR / "channels.html"
-        if not page.is_file():
-            raise HTTPException(404, "channel manager is not installed")
-        return FileResponse(page)
+        return _page(WEB_DIR / "channels.html")
 
     @app.get("/")
     def home():
-        index = WEB_DIR / "index.html"
-        if not index.is_file():
-            raise HTTPException(404, "guide is not installed")
-        return FileResponse(index)
+        return _page(WEB_DIR / "index.html")
 
     @app.get("/favicon.svg")
     def favicon_svg_route():
@@ -124,7 +141,7 @@ def create_app() -> FastAPI:
         return Response(apple_touch_png(), media_type="image/png")
 
     if WEB_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+        app.mount("/static", FreshStaticFiles(directory=WEB_DIR), name="static")
     return app
 
 
