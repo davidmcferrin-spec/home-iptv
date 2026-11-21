@@ -187,11 +187,11 @@ class Hub:
         self._lock = threading.Lock()
         self._active: dict[int, ActiveStream] = {}
 
-    def advertise_host(self) -> None:
-        host = self.cfg.webrtc_additional_host
-        if not host:
+    def advertise_host(self, host: str | None = None) -> None:
+        chosen = (host or self.cfg.webrtc_additional_host or "").strip()
+        if not chosen:
             return
-        self.mediamtx.patch_global({"webrtcAdditionalHosts": [host]})
+        self.mediamtx.patch_global({"webrtcAdditionalHosts": [chosen]})
 
     def idle_seconds(self) -> int:
         conn = connect(self.cfg.database_path)

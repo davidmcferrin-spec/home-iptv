@@ -550,7 +550,7 @@ async function tune(channel) {
       await playHls(info.llhls_url);
     } catch (hlsErr) {
       if (!(hlsErr instanceof Error)) throw hlsErr;
-      toast("Playback did not start");
+      toast(`${err.message}. ${hlsErr.message}`);
     }
   }
   render();
@@ -599,13 +599,41 @@ async function playWhep(url) {
   const offer = await connection.createOffer();
   await connection.setLocalDescription(offer);
   await waitForIce(connection);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/sdp" },
-    body: connection.localDescription.sdp,
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/sdp" },
+      body: connection.localDescription.sdp,
+    });
+  } catch (err) {
+    throw new Error(`WHEP handshake failed: ${err.message}`);
+  }
+  if (!response.ok) throw new Error(`WHEP handshake failed: HTTP ${response.status}`);
+  try {
+    await connection.setRemoteDescription({ type: "answer", sdp: await response.text() });
+  } catch (err) {
+    throw new Error(`WHEP handshake failed: ${err.message}`);
+  }
+  await waitForConnected(connection);
+}
+
+function waitForConnected(connection) {
+  if (connection.connectionState === "connected") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("WebRTC ICE failed: timed out")), 8000);
+    const check = () => {
+      if (connection.connectionState === "connected") {
+        window.clearTimeout(timer);
+        resolve();
+      } else if (connection.connectionState === "failed" || connection.iceConnectionState === "failed") {
+        window.clearTimeout(timer);
+        reject(new Error("WebRTC ICE failed"));
+      }
+    };
+    connection.addEventListener("connectionstatechange", check);
+    connection.addEventListener("iceconnectionstatechange", check);
   });
-  if (!response.ok) throw new Error(`whep returned ${response.status}`);
-  await connection.setRemoteDescription({ type: "answer", sdp: await response.text() });
 }
 
 async function playHls(url) {
@@ -618,7 +646,7 @@ async function playHls(url) {
     await new Promise((resolve, reject) => {
       player.on(window.Hls.Events.MANIFEST_PARSED, resolve);
       player.on(window.Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) reject(new Error(data.type || "hls"));
+        if (data.fatal) reject(new Error(`HLS fallback failed: ${data.details || data.type || "error"}`));
       });
     });
     stage.classList.add("has-video");
@@ -631,7 +659,7 @@ async function playHls(url) {
     await video.play();
     return;
   }
-  throw new Error("this browser cannot play LL-HLS");
+  throw new Error("HLS fallback failed: this browser cannot play LL-HLS");
 }
 
 function tuneRelative(step) {

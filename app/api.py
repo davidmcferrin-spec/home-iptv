@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 from urllib.parse import urlparse
 
@@ -23,7 +24,8 @@ from app.hdhomerun import (
     fetch_device,
     scan_lan,
 )
-from app.hub import StreamOffline, StreamStartError, TunersBusy
+from app.hub import MediaMTXError, StreamOffline, StreamStartError, TunersBusy
+from app.public_url import is_loopback, request_hostname, rewrite_playback
 from app.importer import (
     PlaylistFetchError,
     fetch_playlist_text,
@@ -34,6 +36,7 @@ from app.importer import (
 from app.playlist import MAX_PLAYLIST_BYTES, PlaylistParseError, parse_playlist
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 SORTS = {"title", "status", "language", "country", "number"}
 
@@ -280,17 +283,39 @@ def _channel_and_device(request: Request, channel_id: int, include_adult: bool) 
         conn.close()
 
 
+def _advertise_for_request(request: Request) -> None:
+    hostname = request_hostname(request.headers.get("host"))
+    configured = (request.app.state.cfg.webrtc_additional_host or "").strip()
+    host = configured if configured and not is_loopback(configured) else hostname
+    if is_loopback(host):
+        return
+    try:
+        request.app.state.hub.advertise_host(host)
+    except MediaMTXError as exc:
+        log.warning("WebRTC additional host was not applied: %s", exc)
+
+
 @router.post("/api/channels/{channel_id}/watch")
 def watch_channel(request: Request, channel_id: int, include_adult: bool = False) -> dict:
     channel, device = _channel_and_device(request, channel_id, include_adult)
+    _advertise_for_request(request)
     try:
-        return request.app.state.hub.ensure(channel, device, origin="watch")
+        info = request.app.state.hub.ensure(channel, device, origin="watch")
     except TunersBusy as exc:
         raise HTTPException(503, "all tuners busy") from exc
     except StreamOffline as exc:
         raise HTTPException(409, str(exc)) from exc
     except StreamStartError as exc:
         raise HTTPException(502, str(exc)) from exc
+    cfg = request.app.state.cfg
+    scheme = request.url.scheme or "http"
+    return rewrite_playback(
+        info,
+        request_hostname(request.headers.get("host")),
+        cfg.public_webrtc_base,
+        cfg.public_hls_base,
+        scheme,
+    )
 
 
 @router.get("/api/channels/{channel_id}/stream")
