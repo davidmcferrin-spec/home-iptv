@@ -1,99 +1,152 @@
 const pageSize = 100;
+const FAV_KEY = "home-iptv-favorites";
 let page = 0;
 let total = 0;
 let selected = new Set();
 let current = [];
+let cursor = 0;
+let anchor = null;
+let favoriteUndo = null;
 
 const rows = document.getElementById("rows");
 
-function query() {
+function favorites() {
+  try {
+    const value = JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
+    return new Set(Array.isArray(value) ? value : []);
+  } catch (err) {
+    if (err instanceof SyntaxError) return new Set();
+    throw err;
+  }
+}
+
+function storeFavorites(ids) {
+  localStorage.setItem(FAV_KEY, JSON.stringify([...ids]));
+}
+
+function filters() {
   const params = new URLSearchParams({
-    limit: String(pageSize),
-    offset: String(page * pageSize),
     include_hidden: "true",
-    sort: "number",
+    sort: document.getElementById("f-sort").value || "number",
     order: "asc",
   });
   const q = document.getElementById("q").value.trim();
   if (q) params.set("q", q);
   const status = document.getElementById("f-status").value;
   if (status) params.set("status", status);
-  const playback = document.getElementById("f-playback").value;
-  if (playback) params.set("playback_mode", playback);
-  const source = document.getElementById("f-source").value;
-  if (source) params.set("source", source);
-  const language = document.getElementById("f-language").value.trim();
-  if (language) params.set("language", language);
-  const country = document.getElementById("f-country").value.trim();
+  const group = document.getElementById("f-group").value;
+  if (group) params.set("group", group);
+  const country = document.getElementById("f-country").value;
   if (country) params.set("country", country);
-  const tag = document.getElementById("f-tag").value.trim();
+  const tag = document.getElementById("f-tag").value;
   if (tag) params.set("tag", tag);
   if (document.getElementById("f-adult").checked) params.set("include_adult", "true");
   return params;
 }
 
+function query() {
+  const params = filters();
+  params.set("limit", String(pageSize));
+  params.set("offset", String(page * pageSize));
+  return params;
+}
+
+function report(message) {
+  document.getElementById("result").textContent = message || "";
+}
+
 async function load() {
-  const response = await fetch(`/api/channels?${query()}`);
-  if (!response.ok) throw new Error("channel list failed");
-  const body = await response.json();
-  total = body.total;
-  current = body.channels;
-  draw();
+  const loading = document.getElementById("loading");
+  loading.hidden = false;
+  try {
+    const response = await fetch(`/api/channels?${query()}`);
+    if (!response.ok) throw new Error(`channel list returned ${response.status}`);
+    const body = await response.json();
+    total = body.total;
+    current = body.channels;
+    if (cursor >= current.length) cursor = 0;
+    draw();
+  } finally {
+    loading.hidden = true;
+  }
+}
+
+function statusLabel(status) {
+  if (status === "online") return "Online";
+  if (status === "offline") return "Offline";
+  return "Unchecked";
 }
 
 function draw() {
   rows.innerHTML = "";
-  current.forEach((channel) => {
+  current.forEach((channel, index) => {
     const tr = document.createElement("tr");
     tr.dataset.id = String(channel.id);
-    tr.draggable = true;
+    if (selected.has(channel.id)) tr.classList.add("selected");
+    if (index === cursor) tr.classList.add("cursor");
     const pick = document.createElement("input");
     pick.type = "checkbox";
     pick.className = "pick";
     pick.checked = selected.has(channel.id);
     pick.setAttribute("aria-label", `Select ${channel.title}`);
-    pick.addEventListener("change", () => {
-      if (pick.checked) selected.add(channel.id);
-      else selected.delete(channel.id);
-      updateBulk();
-    });
-    const cells = [
-      pick,
-      editButton(channel),
-      logo(channel),
-      inputCell(channel, "guide_number", channel.guide_number || ""),
-      inputCell(channel, "title", channel.title || ""),
-      text(channel.group_title || ""),
-      text((channel.tags || []).map((tag) => tag.name).join(", ")),
-      inputCell(channel, "language", channel.language || ""),
-      inputCell(channel, "country", channel.country || ""),
-      adultCell(channel),
-      text(channel.status || "unknown"),
-      text(channel.last_checked_at || ""),
-      text(channel.tvg_id || ""),
-      playbackCell(channel),
-    ];
-    cells.forEach((node) => {
+    pick.addEventListener("click", (event) => togglePick(index, pick.checked, event.shiftKey));
+    const number = inlineInput(channel, "guide_number", channel.guide_number || "", "Number");
+    const name = inlineInput(channel, "title", channel.title || "", "Name");
+    const status = document.createElement("span");
+    status.className = `status-pill ${channel.status || "unknown"}`;
+    status.textContent = statusLabel(channel.status);
+    const tags = document.createElement("span");
+    tags.className = "tag-line";
+    tags.textContent = (channel.tags || []).map((tag) => tag.name).join(", ");
+    [pick, logo(channel), number, name, text(channel.group_title || ""), status, tags, editButton(channel)].forEach((node) => {
       const td = document.createElement("td");
       td.appendChild(node);
       tr.appendChild(td);
     });
-    tr.addEventListener("dblclick", () => openDrawer(channel));
-    tr.addEventListener("click", (event) => {
-      if (event.target.closest("input, select, button, a, label")) return;
+    tr.addEventListener("dblclick", (event) => {
+      if (event.target.closest("button, a")) return;
       openDrawer(channel);
+    });
+    tr.addEventListener("click", (event) => {
+      if (event.target.closest("input, button, a, label")) return;
+      cursor = index;
+      rows.querySelectorAll("tr").forEach((row, rowIndex) => {
+        row.classList.toggle("cursor", rowIndex === cursor);
+      });
     });
     rows.appendChild(tr);
   });
-  document.getElementById("empty-state").hidden = total !== 0;
-  document.getElementById("channel-table").hidden = total === 0;
+  const empty = document.getElementById("empty-state");
+  const table = document.getElementById("channel-table");
+  empty.hidden = total !== 0;
+  table.hidden = total === 0;
   document.getElementById("channel-count").textContent = total === 1 ? "1 channel" : `${total} channels`;
   const start = total ? page * pageSize + 1 : 0;
   const end = Math.min(total, (page + 1) * pageSize);
-  document.getElementById("page-label").textContent = `${start}–${end} of ${total}`;
+  document.getElementById("page-label").textContent = total ? `${start}–${end} of ${total}` : "0 channels";
   document.getElementById("prev-page").disabled = page === 0;
   document.getElementById("next-page").disabled = end >= total;
+  const pageBox = document.getElementById("select-page");
+  pageBox.checked = current.length > 0 && current.every((channel) => selected.has(channel.id));
+  pageBox.indeterminate = !pageBox.checked && current.some((channel) => selected.has(channel.id));
   updateBulk();
+  const focused = rows.querySelector("tr.cursor");
+  if (focused) focused.scrollIntoView({ block: "nearest" });
+}
+
+function togglePick(index, on, shift) {
+  if (shift && anchor != null) {
+    const start = Math.min(anchor, index);
+    const end = Math.max(anchor, index);
+    for (let item = start; item <= end; item += 1) {
+      if (on) selected.add(current[item].id);
+      else selected.delete(current[item].id);
+    }
+  } else if (on) selected.add(current[index].id);
+  else selected.delete(current[index].id);
+  anchor = index;
+  cursor = index;
+  draw();
 }
 
 function text(value) {
@@ -107,23 +160,25 @@ function logo(channel) {
   img.className = "logo";
   img.alt = "";
   img.src = `/api/logo/${channel.id}`;
+  img.addEventListener("error", () => {
+    img.replaceWith(text((channel.title || "?").slice(0, 2).toUpperCase()));
+  });
   return img;
 }
 
-function inputCell(channel, field, value) {
+function inlineInput(channel, field, value, label) {
   const input = document.createElement("input");
   input.value = value;
-  input.setAttribute("aria-label", `${field} for ${channel.title}`);
-  input.addEventListener("change", () => saveField(channel, field, input.value.trim()));
-  return input;
-}
-
-function adultCell(channel) {
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.checked = Boolean(channel.adult);
-  input.setAttribute("aria-label", `Adult ${channel.title}`);
-  input.addEventListener("change", () => saveField(channel, "adult", input.checked));
+  input.className = "cell-edit";
+  input.setAttribute("aria-label", `${label} for ${channel.title}`);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") input.blur();
+    if (event.key === "Escape") {
+      input.value = value;
+      input.blur();
+    }
+  });
+  input.addEventListener("change", () => saveField(channel, field, input.value.trim(), input));
   return input;
 }
 
@@ -146,48 +201,215 @@ function editButton(channel) {
   return button;
 }
 
-function playbackCell(channel) {
-  const select = document.createElement("select");
-  select.setAttribute("aria-label", `Playback for ${channel.title}`);
-  ["auto", "webrtc", "hls", "transcode"].forEach((mode) => {
-    const option = document.createElement("option");
-    option.value = mode;
-    option.textContent = mode;
-    select.appendChild(option);
-  });
-  select.value = channel.playback_mode || "auto";
-  select.addEventListener("change", () => saveField(channel, "playback_mode", select.value));
-  return select;
-}
-
-async function saveField(channel, field, value) {
-  const body = {};
-  body[field] = value;
+async function saveField(channel, field, value, input) {
   const response = await fetch(`/api/channels/${channel.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ [field]: value }),
   });
-  if (!response.ok) window.alert("That change was not saved");
-  else Object.assign(channel, await response.json());
+  if (!response.ok) {
+    report(`Could not save ${channel.title}`);
+    input.value = channel[field] || "";
+    return;
+  }
+  Object.assign(channel, await response.json());
+  report(`Saved ${channel.title}`);
 }
 
 function updateBulk() {
   const bar = document.getElementById("bulk-bar");
   bar.hidden = selected.size === 0;
-  document.getElementById("bulk-count").textContent = `${selected.size} selected`;
+  document.getElementById("bulk-count").textContent = selected.size === 1 ? "1 selected" : `${selected.size} selected`;
 }
 
-async function bulk(body) {
+function openBulk() {
+  document.getElementById("bulk-panel").hidden = false;
+  document.getElementById("bulk-confirm").hidden = true;
+  document.getElementById("bulk-error").textContent = "";
+  report("");
+  refreshPreview();
+}
+
+function refreshPreview() {
+  const bits = [];
+  if (document.getElementById("b-clear-group").checked) bits.push("clear group");
+  else if (document.getElementById("b-group").value.trim()) bits.push("set group");
+  if (document.getElementById("b-add-tags").value.trim()) bits.push("add tags");
+  if (document.getElementById("b-remove-tags").value.trim()) bits.push("remove tags");
+  if (document.getElementById("b-hidden").value) bits.push("change visibility");
+  if (document.getElementById("b-favorite").value) bits.push("change favorites");
+  if (document.getElementById("b-clear-guide").checked || document.getElementById("b-guide").value.trim()) bits.push("change guide match");
+  if (document.getElementById("b-renumber").value.trim()) bits.push("renumber");
+  const detail = bits.length ? `: ${bits.join(", ")}` : "";
+  const countLabel = selected.size === 1 ? "1 channel" : `${selected.size} channels`;
+  document.getElementById("bulk-preview").textContent = `${countLabel} will change${detail}.`;
+}
+
+function closeBulk() {
+  document.getElementById("bulk-panel").hidden = true;
+}
+
+async function tagIds(names) {
+  const ids = [];
+  if (!names.length) return ids;
+  const listed = await fetch("/api/tags?include_adult=true");
+  if (!listed.ok) throw new Error(`tags returned ${listed.status}`);
+  let known = (await listed.json()).tags;
+  for (const name of names) {
+    let tag = known.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (!tag) {
+      const created = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (created.status === 409) {
+        const again = await fetch("/api/tags?include_adult=true");
+        known = again.ok ? (await again.json()).tags : known;
+        tag = known.find((item) => item.name.toLowerCase() === name.toLowerCase());
+      } else if (!created.ok) {
+        throw new Error(`tag ${name} was not created`);
+      } else {
+        tag = await created.json();
+        known.push(tag);
+      }
+    }
+    if (tag) ids.push(tag.id);
+  }
+  return ids;
+}
+
+function splitTags(value) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+async function applyBulk(event) {
+  event.preventDefault();
+  const error = document.getElementById("bulk-error");
+  error.textContent = "";
+  const ids = [...selected];
+  if (!ids.length) return;
+  const body = { ids };
+  const changes = [];
+  if (document.getElementById("b-clear-group").checked) {
+    body.group_title = "";
+    changes.push("clear group");
+  } else if (document.getElementById("b-group").value.trim()) {
+    body.group_title = document.getElementById("b-group").value.trim();
+    changes.push(`group ${body.group_title}`);
+  }
+  const hidden = document.getElementById("b-hidden").value;
+  if (hidden === "hide") {
+    body.hidden = true;
+    changes.push("hide");
+  } else if (hidden === "show") {
+    body.hidden = false;
+    changes.push("show");
+  }
+  if (document.getElementById("b-clear-guide").checked) {
+    body.tvg_id = "";
+    changes.push("clear guide match");
+  } else if (document.getElementById("b-guide").value.trim()) {
+    body.tvg_id = document.getElementById("b-guide").value.trim();
+    changes.push("set guide match");
+  }
+  const renumber = document.getElementById("b-renumber").value.trim();
+  if (renumber) {
+    body.renumber_from = Number(renumber);
+    changes.push(`renumber from ${renumber}`);
+  }
+  const addNames = splitTags(document.getElementById("b-add-tags").value);
+  const removeNames = splitTags(document.getElementById("b-remove-tags").value);
+  try {
+    if (addNames.length) {
+      body.add_tag_ids = await tagIds(addNames);
+      changes.push("add tags");
+    }
+    if (removeNames.length) {
+      body.remove_tag_ids = await tagIds(removeNames);
+      changes.push("remove tags");
+    }
+  } catch (err) {
+    error.textContent = err.message;
+    return;
+  }
+  const favorite = document.getElementById("b-favorite").value;
+  const serverChange = Object.keys(body).length > 1;
+  if (!serverChange && !favorite) {
+    error.textContent = "Choose at least one change";
+    return;
+  }
+  document.getElementById("bulk-preview").textContent = `${ids.length} channels will change: ${changes.concat(favorite === "on" ? ["favorite"] : favorite === "off" ? ["unfavorite"] : []).join(", ")}.`;
+  favoriteUndo = [...favorites()];
+  if (favorite) {
+    const next = favorites();
+    ids.forEach((id) => {
+      if (favorite === "on") next.add(id);
+      else next.delete(id);
+    });
+    storeFavorites(next);
+  }
+  if (!serverChange) {
+    report(`Updated ${ids.length}. Failed 0.`);
+    closeBulk();
+    return;
+  }
   const response = await fetch("/api/channels/bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids: [...selected], ...body }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
-    window.alert("That change was not saved");
+    let detail = `bulk edit returned ${response.status}`;
+    try {
+      const payload = await response.json();
+      if (typeof payload.detail === "string") detail = payload.detail;
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+    }
+    error.textContent = detail;
     return;
   }
+  const payload = await response.json();
+  const failed = payload.errors || [];
+  const detail = failed.length ? ` ${failed.map((item) => `${item.id} ${item.error}`).join("; ")}` : "";
+  report(`Updated ${payload.succeeded}. Failed ${payload.failed}.${detail}`);
+  closeBulk();
+  await loadFacets();
+  await load();
+}
+
+async function deleteSelected() {
+  favoriteUndo = [...favorites()];
+  const response = await fetch("/api/channels/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: [...selected], delete: true }),
+  });
+  if (!response.ok) {
+    document.getElementById("bulk-error").textContent = `delete returned ${response.status}`;
+    return;
+  }
+  const payload = await response.json();
+  selected = new Set();
+  report(`Deleted ${payload.succeeded}. Failed ${payload.failed}.`);
+  closeBulk();
+  await load();
+}
+
+async function undoLast() {
+  const response = await fetch("/api/channels/undo", { method: "POST" });
+  const hadFavorites = favoriteUndo != null;
+  if (favoriteUndo) {
+    storeFavorites(new Set(favoriteUndo));
+    favoriteUndo = null;
+  }
+  if (!response.ok && response.status !== 404) {
+    report(`Undo returned ${response.status}`);
+    return;
+  }
+  if (!response.ok) report(hadFavorites ? "Restored favorites" : "Nothing to undo");
+  else report("Undone");
   selected = new Set();
   await load();
 }
@@ -199,6 +421,7 @@ function openDrawer(channel) {
   document.getElementById("d-title").value = channel.title || "";
   document.getElementById("d-url").value = channel.url || "";
   document.getElementById("d-number").value = channel.guide_number || "";
+  document.getElementById("d-group").value = channel.group_title || "";
   document.getElementById("d-logo").value = channel.logo_url || "";
   document.getElementById("d-logo-preview").src = `/api/logo/${channel.id}`;
   document.getElementById("d-guide").value = channel.tvg_id || "";
@@ -209,10 +432,7 @@ function openDrawer(channel) {
   document.getElementById("d-hidden").checked = Boolean(channel.hidden);
   document.getElementById("d-playback").value = channel.playback_mode || "auto";
   document.getElementById("d-notes").value = channel.notes || "";
-  const probe = [channel.video_codec, channel.video_profile, channel.has_b_frames != null ? `${channel.has_b_frames} b-frames` : "", channel.status_detail]
-    .filter(Boolean)
-    .join(" · ");
-  document.getElementById("d-probe").textContent = probe;
+  document.getElementById("d-probe").textContent = [statusLabel(channel.status), channel.status_detail].filter(Boolean).join(" · ");
   document.getElementById("d-error").textContent = "";
   fillMatches(channel.title || "");
   document.getElementById("d-title").focus();
@@ -235,35 +455,24 @@ async function fillMatches(q) {
 document.getElementById("drawer-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const id = document.getElementById("drawer").dataset.id;
-  const channel = current.find((item) => String(item.id) === id);
-  const names = document.getElementById("d-tags").value.split(",").map((item) => item.trim()).filter(Boolean);
-  const currentIds = new Set((channel.tags || []).map((tag) => tag.id));
-  const nextIds = [];
-  for (const name of names) {
-    let tag = null;
-    const listed = await fetch("/api/tags?include_adult=true");
-    const known = listed.ok ? (await listed.json()).tags : [];
-    tag = known.find((item) => item.name.toLowerCase() === name.toLowerCase());
-    if (!tag) {
-      const created = await fetch("/api/tags", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (!created.ok && created.status !== 409) {
-        document.getElementById("d-error").textContent = "A tag was not saved";
-        return;
-      }
-      tag = created.ok ? await created.json() : known.find((item) => item.name.toLowerCase() === name.toLowerCase());
-    }
-    if (tag) nextIds.push(tag.id);
+  const channel = current.find((item) => String(item.id) === id) || { tags: [] };
+  const names = splitTags(document.getElementById("d-tags").value);
+  const error = document.getElementById("d-error");
+  let nextIds = [];
+  try {
+    nextIds = await tagIds(names);
+  } catch (err) {
+    error.textContent = err.message;
+    return;
   }
+  const currentIds = new Set((channel.tags || []).map((tag) => tag.id));
   const response = await fetch(`/api/channels/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       title: document.getElementById("d-title").value.trim(),
       guide_number: document.getElementById("d-number").value.trim(),
+      group_title: document.getElementById("d-group").value.trim(),
       logo_url: document.getElementById("d-logo").value.trim(),
       tvg_id: document.getElementById("d-guide").value.trim(),
       language: document.getElementById("d-language").value.trim(),
@@ -277,7 +486,7 @@ document.getElementById("drawer-form").addEventListener("submit", async (event) 
     }),
   });
   if (!response.ok) {
-    document.getElementById("d-error").textContent = "That channel was not saved";
+    error.textContent = `That channel was not saved (${response.status})`;
     return;
   }
   document.getElementById("drawer").hidden = true;
@@ -285,90 +494,9 @@ document.getElementById("drawer-form").addEventListener("submit", async (event) 
   await load();
 });
 
-["q", "f-status", "f-playback", "f-source", "f-language", "f-country", "f-tag", "f-adult"].forEach((id) => {
-  document.getElementById(id).addEventListener("change", () => {
-    page = 0;
-    load();
-  });
-});
-let searchTimer = 0;
-document.getElementById("q").addEventListener("input", () => {
-  window.clearTimeout(searchTimer);
-  searchTimer = window.setTimeout(() => {
-    page = 0;
-    load();
-  }, 200);
-});
-document.getElementById("prev-page").addEventListener("click", () => {
-  page = Math.max(0, page - 1);
-  load();
-});
-document.getElementById("next-page").addEventListener("click", () => {
-  page += 1;
-  load();
-});
-document.getElementById("bulk-verify").addEventListener("click", () => bulk({ verify: true }));
-document.getElementById("bulk-hide").addEventListener("click", () => bulk({ hidden: true }));
-document.getElementById("bulk-show").addEventListener("click", () => bulk({ hidden: false }));
-document.getElementById("bulk-playback").addEventListener("change", (event) => {
-  if (event.target.value) bulk({ playback_mode: event.target.value });
-  event.target.value = "";
-});
-document.getElementById("bulk-delete").addEventListener("click", () => {
-  if (window.confirm(`Delete ${selected.size} channels? Undo can put them back.`)) bulk({ delete: true });
-});
-document.getElementById("undo").addEventListener("click", async () => {
-  const response = await fetch("/api/channels/undo", { method: "POST" });
-  if (!response.ok) window.alert("Nothing to undo");
-  else {
-    selected = new Set();
-    await load();
-  }
-});
-function closeDrawer() {
-  document.getElementById("drawer").hidden = true;
-}
-
-document.getElementById("close-drawer").addEventListener("click", closeDrawer);
-document.addEventListener("keydown", (event) => {
-  if (document.getElementById("drawer").hidden) return;
-  if (event.key === "Escape") closeDrawer();
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-    event.preventDefault();
-    document.getElementById("drawer-form").requestSubmit();
-  }
-});
-
-rows.addEventListener("dragover", (event) => event.preventDefault());
-let dragId = null;
-rows.addEventListener("dragstart", (event) => {
-  const row = event.target.closest("tr");
-  if (!row) return;
-  dragId = Number(row.dataset.id);
-});
-rows.addEventListener("drop", async (event) => {
-  const row = event.target.closest("tr");
-  if (!row || dragId == null) return;
-  const targetId = Number(row.dataset.id);
-  const order = current.map((channel) => channel.id);
-  const from = order.indexOf(dragId);
-  const to = order.indexOf(targetId);
-  if (from < 0 || to < 0 || from === to) return;
-  order.splice(to, 0, order.splice(from, 1)[0]);
-  const start = page * pageSize;
-  const assignments = order.map((id, index) => ({ id, guide_number: String(start + index + 1) }));
-  await fetch("/api/channels/renumber", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assignments }),
-  });
-  dragId = null;
-  await load();
-});
-
 function fillFacet(id, values, blank) {
   const select = document.getElementById(id);
-  const current = select.value;
+  const currentValue = select.value;
   select.replaceChildren();
   const first = document.createElement("option");
   first.value = "";
@@ -380,26 +508,147 @@ function fillFacet(id, values, blank) {
     option.textContent = value;
     select.appendChild(option);
   });
-  if ([...select.options].some((option) => option.value === current)) select.value = current;
+  if (id === "f-group") {
+    const none = document.createElement("option");
+    none.value = "__none__";
+    none.textContent = "No group";
+    select.appendChild(none);
+  }
+  if ([...select.options].some((option) => option.value === currentValue)) select.value = currentValue;
 }
 
 async function loadFacets() {
   const response = await fetch("/api/channels/facets?include_hidden=true&include_adult=true");
   if (!response.ok) return;
   const body = await response.json();
-  fillFacet("f-language", body.languages || [], "Any language");
+  fillFacet("f-group", body.groups || [], "Any group");
   fillFacet("f-country", body.countries || [], "Any country");
   fillFacet("f-tag", body.tags || [], "Any tag");
 }
 
-renderFilterEditor(document.getElementById("filter-editor"));
-loadFacets().catch(() => {});
-load().catch((err) => {
-  rows.innerHTML = "";
-  const tr = document.createElement("tr");
-  const td = document.createElement("td");
-  td.colSpan = 14;
-  td.textContent = err.message;
-  tr.appendChild(td);
-  rows.appendChild(tr);
+["f-status", "f-group", "f-tag", "f-country", "f-sort", "f-adult"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", () => {
+    page = 0;
+    load().catch((err) => report(err.message));
+  });
 });
+let searchTimer = 0;
+document.getElementById("q").addEventListener("input", () => {
+  window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(() => {
+    page = 0;
+    load().catch((err) => report(err.message));
+  }, 200);
+});
+document.getElementById("prev-page").addEventListener("click", () => {
+  page = Math.max(0, page - 1);
+  load().catch((err) => report(err.message));
+});
+document.getElementById("next-page").addEventListener("click", () => {
+  page += 1;
+  load().catch((err) => report(err.message));
+});
+document.getElementById("select-page").addEventListener("change", (event) => {
+  current.forEach((channel) => {
+    if (event.target.checked) selected.add(channel.id);
+    else selected.delete(channel.id);
+  });
+  anchor = 0;
+  draw();
+});
+document.getElementById("select-matching").addEventListener("click", async () => {
+  const params = filters();
+  params.set("limit", "1000");
+  let offset = 0;
+  const ids = [];
+  while (true) {
+    params.set("offset", String(offset));
+    const response = await fetch(`/api/channels?${params}`);
+    if (!response.ok) {
+      report(`channel list returned ${response.status}`);
+      return;
+    }
+    const body = await response.json();
+    body.channels.forEach((channel) => ids.push(channel.id));
+    offset += body.channels.length;
+    if (!body.channels.length || offset >= body.total) break;
+  }
+  selected = new Set(ids);
+  report(`Selected ${ids.length} matching channels`);
+  draw();
+});
+document.getElementById("clear-selection").addEventListener("click", () => {
+  selected = new Set();
+  draw();
+});
+document.getElementById("open-bulk").addEventListener("click", openBulk);
+document.getElementById("close-bulk").addEventListener("click", closeBulk);
+["b-group", "b-add-tags", "b-remove-tags", "b-guide", "b-renumber"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", refreshPreview);
+});
+["b-clear-group", "b-clear-guide", "b-hidden", "b-favorite"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", refreshPreview);
+});
+document.getElementById("bulk-form").addEventListener("submit", (event) => {
+  applyBulk(event).catch((err) => {
+    document.getElementById("bulk-error").textContent = err.message;
+  });
+});
+document.getElementById("bulk-ask-delete").addEventListener("click", () => {
+  document.getElementById("bulk-confirm").hidden = false;
+  document.getElementById("bulk-confirm-text").textContent = `Delete ${selected.size} channels? Undo can put them back.`;
+});
+document.getElementById("bulk-cancel-delete").addEventListener("click", () => {
+  document.getElementById("bulk-confirm").hidden = true;
+});
+document.getElementById("bulk-delete").addEventListener("click", () => {
+  deleteSelected().catch((err) => {
+    document.getElementById("bulk-error").textContent = err.message;
+  });
+});
+document.getElementById("undo").addEventListener("click", () => {
+  undoLast().catch((err) => report(err.message));
+});
+document.getElementById("close-drawer").addEventListener("click", () => {
+  document.getElementById("drawer").hidden = true;
+});
+document.addEventListener("keydown", (event) => {
+  const drawerOpen = !document.getElementById("drawer").hidden;
+  const bulkOpen = !document.getElementById("bulk-panel").hidden;
+  if (event.key === "Escape") {
+    document.getElementById("drawer").hidden = true;
+    if (bulkOpen) closeBulk();
+    return;
+  }
+  if (drawerOpen && event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    document.getElementById("drawer-form").requestSubmit();
+    return;
+  }
+  if (event.target.closest("input, textarea, select")) return;
+  if (drawerOpen || bulkOpen) return;
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    cursor = Math.min(current.length - 1, cursor + 1);
+    draw();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    cursor = Math.max(0, cursor - 1);
+    draw();
+  } else if (event.key === "x" || event.key === "X") {
+    if (!current[cursor]) return;
+    const id = current[cursor].id;
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+    anchor = cursor;
+    draw();
+  } else if (event.key === "e" || event.key === "E") {
+    if (current[cursor]) openDrawer(current[cursor]);
+  } else if (event.key === "/") {
+    event.preventDefault();
+    document.getElementById("q").focus();
+  }
+});
+
+loadFacets().catch((err) => report(err.message));
+load().catch((err) => report(err.message));

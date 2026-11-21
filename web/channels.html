@@ -12,83 +12,64 @@
     <header class="manager-bar">
       <a class="chip" href="/">Guide</a>
       <h1>Channels</h1>
-      <input id="q" type="search" placeholder="Search name" aria-label="Search name">
-      <select id="f-status" aria-label="Verification status">
+      <input id="q" type="search" placeholder="Search name or number" aria-label="Search channels">
+      <select id="f-status" aria-label="Status">
         <option value="">Any status</option>
         <option value="online">Online</option>
         <option value="offline">Offline</option>
         <option value="unknown">Unchecked</option>
       </select>
-      <select id="f-playback" aria-label="Playback mode">
-        <option value="">Any playback</option>
-        <option value="auto">Auto</option>
-        <option value="webrtc">WebRTC</option>
-        <option value="hls">HLS</option>
-        <option value="transcode">Transcode</option>
-      </select>
-      <select id="f-source" aria-label="Source">
-        <option value="">Any source</option>
-        <option value="playlist">Playlist</option>
-        <option value="hdhomerun">HDHomeRun</option>
-      </select>
-      <select id="f-language" aria-label="Language">
-        <option value="">Any language</option>
-      </select>
-      <select id="f-country" aria-label="Country">
-        <option value="">Any country</option>
+      <select id="f-group" aria-label="Group">
+        <option value="">Any group</option>
       </select>
       <select id="f-tag" aria-label="Tag">
         <option value="">Any tag</option>
       </select>
+      <select id="f-country" aria-label="Country">
+        <option value="">Any country</option>
+      </select>
+      <select id="f-sort" aria-label="Sort">
+        <option value="number">Number</option>
+        <option value="title">Name</option>
+        <option value="group">Group</option>
+        <option value="status">Status</option>
+      </select>
       <label class="check"><input id="f-adult" type="checkbox"> Adult</label>
+      <button id="select-matching" type="button">Select matching</button>
       <span id="channel-count"></span>
     </header>
-    <p id="manager-hint">Click a row or Edit. A cell saves when you leave it. The panel saves when you press Save.</p>
+    <p id="manager-hint">Select rows, then Bulk edit. A name or number saves when you leave the cell. Arrow keys move, X selects, E edits, and / searches.</p>
     <div id="bulk-bar" hidden>
       <span id="bulk-count"></span>
-      <button id="bulk-verify" type="button">Re-verify</button>
-      <button id="bulk-hide" type="button">Hide</button>
-      <button id="bulk-show" type="button">Show</button>
-      <select id="bulk-playback" aria-label="Bulk playback">
-        <option value="">Playback</option>
-        <option value="auto">Auto</option>
-        <option value="webrtc">WebRTC</option>
-        <option value="hls">HLS</option>
-        <option value="transcode">Transcode</option>
-      </select>
-      <button id="bulk-delete" type="button">Delete</button>
+      <button id="clear-selection" type="button">Clear</button>
+      <button id="open-bulk" type="button">Bulk edit</button>
       <button id="undo" type="button">Undo</button>
     </div>
+    <p id="loading" hidden>Loading channels...</p>
+    <p id="result" role="status"></p>
     <div id="table-wrap">
-      <p id="empty-state" hidden>No channels yet. Add a playlist from the guide, then edit the channels here.</p>
+      <p id="empty-state" hidden>No channels match. Add a playlist from the guide, or clear the filters.</p>
       <table id="channel-table">
         <thead>
           <tr>
-            <th></th>
-            <th>Edit</th>
+            <th><input id="select-page" type="checkbox" aria-label="Select this page"></th>
             <th>Logo</th>
             <th>Number</th>
             <th>Name</th>
             <th>Group</th>
-            <th>Tags</th>
-            <th>Language</th>
-            <th>Country</th>
-            <th>Adult</th>
             <th>Status</th>
-            <th>Verified</th>
-            <th>EPG</th>
-            <th>Playback</th>
+            <th>Tags</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
-    <div class="manager-bar">
+    <div class="manager-bar pager">
       <button id="prev-page" type="button">Previous</button>
       <span id="page-label"></span>
       <button id="next-page" type="button">Next</button>
     </div>
-    <section id="filter-editor"></section>
   </div>
   <aside id="drawer" hidden>
     <form id="drawer-form">
@@ -97,6 +78,7 @@
         <h3>Basics</h3>
         <label>Name <input id="d-title" type="text" maxlength="200"></label>
         <label>Number <input id="d-number" type="text" maxlength="16"></label>
+        <label>Group <input id="d-group" type="text" maxlength="120"></label>
         <label>Logo URL <input id="d-logo" type="url"></label>
         <img id="d-logo-preview" alt="" width="64" height="64">
         <label>Notes <textarea id="d-notes" rows="3"></textarea></label>
@@ -137,7 +119,60 @@
       </div>
     </form>
   </aside>
-  <script src="/static/filters.js"></script>
+  <aside id="bulk-panel" hidden>
+    <form id="bulk-form">
+      <div class="bulk-head">
+        <h2>Bulk edit</h2>
+        <p id="bulk-preview"></p>
+      </div>
+      <div class="bulk-body">
+      <label>Group
+        <input id="b-group" type="text" placeholder="Leave unchanged">
+      </label>
+      <label class="check"><input id="b-clear-group" type="checkbox"> Clear group</label>
+      <label>Add tags
+        <input id="b-add-tags" type="text" placeholder="News, Sports">
+      </label>
+      <label>Remove tags
+        <input id="b-remove-tags" type="text" placeholder="Old tag">
+      </label>
+      <label>Visibility
+        <select id="b-hidden">
+          <option value="">Leave visibility unchanged</option>
+          <option value="hide">Hide from the guide</option>
+          <option value="show">Show on the guide</option>
+        </select>
+      </label>
+      <label>Favorites on this browser
+        <select id="b-favorite">
+          <option value="">Leave favorites unchanged</option>
+          <option value="on">Favorite</option>
+          <option value="off">Unfavorite</option>
+        </select>
+      </label>
+      <label>Guide match
+        <input id="b-guide" type="text" placeholder="Leave unchanged">
+      </label>
+      <label class="check"><input id="b-clear-guide" type="checkbox"> Clear guide match</label>
+      <label>Renumber from
+        <input id="b-renumber" type="number" min="0" step="1" placeholder="Leave numbers">
+      </label>
+      <p id="bulk-error" role="alert"></p>
+      <div class="settings-actions">
+        <button type="submit">Apply</button>
+        <button id="bulk-ask-delete" type="button">Delete</button>
+        <button id="close-bulk" type="button">Cancel</button>
+      </div>
+      <div id="bulk-confirm" hidden>
+        <p id="bulk-confirm-text"></p>
+        <div class="settings-actions">
+          <button id="bulk-delete" type="button">Delete channels</button>
+          <button id="bulk-cancel-delete" type="button">Back</button>
+        </div>
+      </div>
+      </div>
+    </form>
+  </aside>
   <script src="/static/channels.js"></script>
 </body>
 </html>

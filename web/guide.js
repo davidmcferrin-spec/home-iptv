@@ -4,6 +4,7 @@ const FAV_KEY = "home-iptv-favorites";
 const COUNTS_KEY = "home-iptv-tune-counts";
 const PREV_KEY = "home-iptv-previous";
 const SLOT_MS = 30 * 60 * 1000;
+let guideServer = { loaded: false, guide_online_only: false, guide_hide_unchecked: false };
 
 const video = document.getElementById("video");
 const stage = document.getElementById("stage");
@@ -140,10 +141,25 @@ function episodeLine(program) {
   return bits.join("  ");
 }
 
+async function ensureGuideServer() {
+  if (guideServer.loaded) return;
+  const response = await fetch("/api/settings");
+  if (!response.ok) throw new Error(`settings returned ${response.status}`);
+  const body = await response.json();
+  guideServer = {
+    loaded: true,
+    guide_online_only: Boolean(body.guide_online_only),
+    guide_hide_unchecked: Boolean(body.guide_hide_unchecked),
+  };
+}
+
 async function fetchChannels(params) {
+  await ensureGuideServer();
   const query = new URLSearchParams(params);
   if (showAdult()) query.set("include_adult", "true");
-  query.set("limit", "500");
+  query.set("limit", "1000");
+  if (guideServer.guide_online_only) query.append("exclude_status", "offline");
+  if (guideServer.guide_hide_unchecked) query.append("exclude_status", "unknown");
   const response = await fetch(`/api/channels?${query}`);
   if (!response.ok) throw new Error(`channel list returned ${response.status}`);
   return (await response.json()).channels;
@@ -1157,6 +1173,13 @@ async function loadServerSettings() {
   document.getElementById("set-verify-interval").value = body.verify_interval_minutes;
   document.getElementById("set-idle").value = body.idle_timeout_seconds;
   document.getElementById("set-playback-profile").value = body.playback_profile === "low" ? "low" : "smooth";
+  document.getElementById("set-online-only").checked = Boolean(body.guide_online_only);
+  document.getElementById("set-hide-unchecked").checked = Boolean(body.guide_hide_unchecked);
+  guideServer = {
+    loaded: true,
+    guide_online_only: Boolean(body.guide_online_only),
+    guide_hide_unchecked: Boolean(body.guide_hide_unchecked),
+  };
   document.getElementById("set-emulation").checked = body.hdhr_emulation;
   document.getElementById("port-http").value = body.ports.http;
   document.getElementById("port-webrtc").value = body.ports.webrtc;
@@ -1269,6 +1292,8 @@ async function saveServerSettings() {
     verify_interval_minutes: Number(document.getElementById("set-verify-interval").value),
     idle_timeout_seconds: Number(document.getElementById("set-idle").value),
     playback_profile: document.getElementById("set-playback-profile").value,
+    guide_online_only: document.getElementById("set-online-only").checked,
+    guide_hide_unchecked: document.getElementById("set-hide-unchecked").checked,
     hdhr_emulation: document.getElementById("set-emulation").checked,
     playlist_group: document.getElementById("set-playlist-group").value,
   };
@@ -1287,6 +1312,11 @@ async function saveServerSettings() {
     }
     throw new Error(detail);
   }
+  guideServer = {
+    loaded: true,
+    guide_online_only: document.getElementById("set-online-only").checked,
+    guide_hide_unchecked: document.getElementById("set-hide-unchecked").checked,
+  };
 }
 
 function setAdult(on) {

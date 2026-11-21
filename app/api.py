@@ -48,7 +48,7 @@ from app.playlist import MAX_PLAYLIST_BYTES, PlaylistParseError, parse_playlist
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-SORTS = {"title", "status", "language", "country", "number", "verified"}
+SORTS = {"title", "status", "language", "country", "number", "verified", "group"}
 
 
 def _db(request: Request):
@@ -84,6 +84,7 @@ class ChannelPatch(BaseModel):
     logo_url: str | None = None
     tvg_id: str | None = None
     title: str | None = None
+    group_title: str | None = None
     playback_mode: str | None = None
     hidden: bool | None = None
     notes: str | None = None
@@ -98,6 +99,9 @@ class BulkPatch(BaseModel):
     adult: bool | None = None
     playback_mode: str | None = None
     hidden: bool | None = None
+    group_title: str | None = None
+    tvg_id: str | None = None
+    renumber_from: int | None = None
     delete: bool = False
     verify: bool = False
     add_tag_ids: list[int] = Field(default_factory=list)
@@ -150,6 +154,8 @@ class SettingsPatch(BaseModel):
     webrtc_additional_host: str | None = None
     playlist_group: str | None = None
     playback_profile: str | None = None
+    guide_online_only: bool | None = None
+    guide_hide_unchecked: bool | None = None
 
 
 class EpgURL(BaseModel):
@@ -288,12 +294,16 @@ def list_channels(
     order: str = "asc",
     limit: int = 200,
     offset: int = 0,
+    group: str | None = None,
+    exclude_status: list[str] = Query(default=[]),
 ) -> dict:
     if sort not in SORTS:
         raise HTTPException(400, "unknown sort")
     if order not in {"asc", "desc"}:
         raise HTTPException(400, "unknown order")
     if status is not None and status not in {"unknown", "online", "offline"}:
+        raise HTTPException(400, "unknown status")
+    if any(item not in {"unknown", "online", "offline"} for item in exclude_status):
         raise HTTPException(400, "unknown status")
     if playback_mode is not None and playback_mode not in {"auto", "webrtc", "hls", "transcode"}:
         raise HTTPException(400, "unknown playback mode")
@@ -318,6 +328,8 @@ def list_channels(
             order=order,
             limit=limit,
             offset=offset,
+            group=group,
+            exclude_status=exclude_status,
         )
     finally:
         conn.close()
@@ -357,7 +369,17 @@ def channel_facets(request: Request, include_adult: bool = True, include_hidden:
                 """
             )
         ]
-        return {"languages": languages, "countries": countries, "tags": tags}
+        groups = [
+            row[0]
+            for row in conn.execute(
+                f"""
+                SELECT DISTINCT group_title FROM channels
+                WHERE {where} AND group_title IS NOT NULL AND group_title != ''
+                ORDER BY group_title COLLATE NOCASE
+                """
+            )
+        ]
+        return {"languages": languages, "countries": countries, "tags": tags, "groups": groups}
     finally:
         conn.close()
 
@@ -675,50 +697,76 @@ def renumber_channels(request: Request, body: RenumberIn) -> dict:
 def bulk_channels(request: Request, body: BulkPatch) -> dict:
     if not body.ids:
         raise HTTPException(400, "ids is empty")
+    if body.renumber_from is not None and body.renumber_from < 0:
+        raise HTTPException(400, "renumber_from must be 0 or greater")
     fields = {}
     incoming = body.model_dump(exclude_unset=True)
-    for key in ("language", "country", "adult", "playback_mode", "hidden"):
+    for key in ("language", "country", "adult", "playback_mode", "hidden", "group_title", "tvg_id"):
         if key in incoming:
             fields[key] = incoming[key]
     conn = _db(request)
     try:
-        remember_channels(conn, body.ids)
-        if body.delete:
-            for channel_id in body.ids:
-                if conn.execute("SELECT id FROM channels WHERE id = ?", (channel_id,)).fetchone() is None:
-                    raise HTTPException(404, f"channel {channel_id} not found")
-                conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
-            conn.commit()
-            return {"deleted": len(body.ids)}
+        for tag_id in body.add_tag_ids:
+            if conn.execute("SELECT id FROM tags WHERE id = ?", (tag_id,)).fetchone() is None:
+                raise HTTPException(404, f"tag {tag_id} not found")
+        present = []
+        errors = []
         for channel_id in body.ids:
-            row = conn.execute("SELECT id FROM channels WHERE id = ?", (channel_id,)).fetchone()
-            if row is None:
-                raise HTTPException(404, f"channel {channel_id} not found")
+            if conn.execute("SELECT id FROM channels WHERE id = ?", (channel_id,)).fetchone() is None:
+                errors.append({"id": channel_id, "error": "not found"})
+            else:
+                present.append(channel_id)
+        remember_channels(conn, present)
+        succeeded: list[int] = []
+        if body.delete:
+            for channel_id in present:
+                conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
+                succeeded.append(channel_id)
+            conn.commit()
+            return {
+                "deleted": len(succeeded),
+                "succeeded": len(succeeded),
+                "failed": len(errors),
+                "errors": errors,
+            }
+        number = body.renumber_from
+        for channel_id in present:
+            channel_fields = dict(fields)
+            if number is not None:
+                channel_fields["guide_number"] = str(number)
+                number += 1
+            conn.execute("SAVEPOINT bulk_one")
             try:
-                set_manual_fields(conn, channel_id, fields)
+                set_manual_fields(conn, channel_id, channel_fields)
+                _apply_tags(conn, channel_id, body.add_tag_ids, body.remove_tag_ids)
+                if body.verify:
+                    enqueue(conn, channel_id)
+                conn.execute("RELEASE SAVEPOINT bulk_one")
             except ValueError as exc:
-                raise HTTPException(400, str(exc)) from exc
-            for tag_id in body.add_tag_ids:
-                if conn.execute("SELECT id FROM tags WHERE id = ?", (tag_id,)).fetchone() is None:
-                    raise HTTPException(404, f"tag {tag_id} not found")
-                conn.execute(
-                    "INSERT INTO channel_tags(channel_id, tag_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-                    (channel_id, tag_id),
-                )
-            for tag_id in body.remove_tag_ids:
-                conn.execute(
-                    "DELETE FROM channel_tags WHERE channel_id = ? AND tag_id = ?",
-                    (channel_id, tag_id),
-                )
-            if body.verify:
-                enqueue(conn, channel_id)
+                conn.execute("ROLLBACK TO SAVEPOINT bulk_one")
+                conn.execute("RELEASE SAVEPOINT bulk_one")
+                errors.append({"id": channel_id, "error": str(exc)})
+                continue
+            except KeyError:
+                conn.execute("ROLLBACK TO SAVEPOINT bulk_one")
+                conn.execute("RELEASE SAVEPOINT bulk_one")
+                errors.append({"id": channel_id, "error": "not found"})
+                continue
+            succeeded.append(channel_id)
         conn.commit()
-        rows = conn.execute(
-            "SELECT * FROM channels WHERE id IN (%s) ORDER BY guide_sort, id" % ",".join("?" for _ in body.ids),
-            body.ids,
-        ).fetchall()
+        rows = []
+        if succeeded:
+            rows = conn.execute(
+                "SELECT * FROM channels WHERE id IN (%s) ORDER BY guide_sort, id" % ",".join("?" for _ in succeeded),
+                succeeded,
+            ).fetchall()
         tags = channel_tags(conn, [row["id"] for row in rows])
-        return {"channels": [channel_json(row, tags.get(row["id"], [])) for row in rows]}
+        return {
+            "succeeded": len(succeeded),
+            "failed": len(errors),
+            "errors": errors,
+            "channels": [channel_json(row, tags.get(row["id"], [])) for row in rows],
+        }
     finally:
         conn.close()
 
@@ -1341,6 +1389,8 @@ def get_settings(request: Request) -> dict:
             "webrtc_additional_host": _stored(conn, "webrtc_additional_host"),
             "playlist_group": playlist_group(conn),
             "playback_profile": (setting(conn, "playback_profile") or "smooth"),
+            "guide_online_only": setting(conn, "guide_online_only") == "1",
+            "guide_hide_unchecked": setting(conn, "guide_hide_unchecked") == "1",
             "effective_http_base": playback_base(http_base, hostname, _port("WEB_PORT", 9595), scheme),
             "effective_webrtc_base": playback_base(webrtc_base, hostname, _port("WEBRTC_PORT", 8889), scheme),
             "effective_hls_base": playback_base(hls_base, hostname, _port("HLS_PORT", 8888), scheme),
@@ -1400,6 +1450,10 @@ def patch_settings(request: Request, body: SettingsPatch) -> dict:
             if profile not in {"smooth", "low"}:
                 raise HTTPException(400, "playback_profile must be smooth or low")
             set_setting(conn, "playback_profile", profile)
+        if "guide_online_only" in data and data["guide_online_only"] is not None:
+            set_setting(conn, "guide_online_only", "1" if data["guide_online_only"] else "0")
+        if "guide_hide_unchecked" in data and data["guide_hide_unchecked"] is not None:
+            set_setting(conn, "guide_hide_unchecked", "1" if data["guide_hide_unchecked"] else "0")
         if "playlist_group" in data and data["playlist_group"] is not None:
             group = data["playlist_group"].strip().lower()
             if group not in {"tag", "language", "country", "source"}:

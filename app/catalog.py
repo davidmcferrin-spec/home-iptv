@@ -429,6 +429,8 @@ def search_channels(
     include_hidden: bool = False,
     playback_mode: str | None = None,
     source: str | None = None,
+    group: str | None = None,
+    exclude_status: list[str] | None = None,
 ) -> dict[str, Any]:
     where, params = _filters(
         q,
@@ -440,6 +442,8 @@ def search_channels(
         include_hidden,
         playback_mode,
         source,
+        group,
+        exclude_status or [],
     )
     sort_sql = {
         "title": "c.title COLLATE NOCASE",
@@ -448,6 +452,7 @@ def search_channels(
         "country": "c.country COLLATE NOCASE",
         "number": "c.guide_sort",
         "verified": "c.last_checked_at",
+        "group": "c.group_title COLLATE NOCASE",
     }[sort]
     direction = "DESC" if order == "desc" else "ASC"
     total = conn.execute(f"SELECT COUNT(*) AS n FROM channels c {where}", params).fetchone()["n"]
@@ -477,6 +482,8 @@ def _filters(
     include_hidden: bool = False,
     playback_mode: str | None = None,
     source: str | None = None,
+    group: str | None = None,
+    exclude_status: list[str] | None = None,
 ) -> tuple[str, list]:
     clauses = ["1 = 1"]
     params: list = []
@@ -494,6 +501,14 @@ def _filters(
     if status:
         clauses.append("c.status = ?")
         params.append(status)
+    for excluded in exclude_status or []:
+        clauses.append("c.status != ?")
+        params.append(excluded)
+    if group == "__none__":
+        clauses.append("(c.group_title IS NULL OR c.group_title = '')")
+    elif group:
+        clauses.append("c.group_title = ?")
+        params.append(group)
     if languages:
         clauses.append("c.language IN (%s)" % ",".join("?" for _ in languages))
         params.extend(languages)
@@ -646,6 +661,16 @@ def set_manual_fields(
     if "hidden" in fields:
         assignments += ["hidden = ?"]
         params.append(1 if fields["hidden"] else 0)
+    old_group = None
+    new_group = None
+    if "group_title" in fields:
+        current = conn.execute("SELECT group_title FROM channels WHERE id = ?", (channel_id,)).fetchone()
+        if current is None:
+            raise KeyError(channel_id)
+        old_group = current["group_title"]
+        new_group = (fields["group_title"] or "").strip() or None
+        assignments += ["group_title = ?"]
+        params.append(new_group)
     if "notes" in fields:
         assignments += ["notes = ?"]
         params.append((fields["notes"] or "").strip() or None)
@@ -665,6 +690,8 @@ def set_manual_fields(
     cur = conn.execute(f"UPDATE channels SET {', '.join(assignments)} WHERE id = ?", params)
     if cur.rowcount == 0:
         raise KeyError(channel_id)
+    if "group_title" in fields:
+        _replace_group_tag(conn, channel_id, old_group, new_group)
 
 
 def programs_for(conn: sqlite3.Connection, start: str, end: str, include_adult: bool) -> list[dict]:
