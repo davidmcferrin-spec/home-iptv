@@ -31,7 +31,7 @@ from app.importer import (
     load_playlist_source,
     store_playlist_file,
 )
-from app.playlist import MAX_PLAYLIST_BYTES, PlaylistParseError
+from app.playlist import MAX_PLAYLIST_BYTES, PlaylistParseError, parse_playlist
 
 router = APIRouter()
 
@@ -103,8 +103,8 @@ def _interval(value: int | None) -> int | None:
     return value
 
 
-def _playlist_json(row) -> dict:
-    return {
+def _playlist_json(row, counts: dict | None = None) -> dict:
+    payload = {
         "id": row["id"],
         "name": row["name"],
         "source_url": row["source_url"],
@@ -113,6 +113,75 @@ def _playlist_json(row) -> dict:
         "last_imported_at": row["last_imported_at"],
         "created_at": row["created_at"],
     }
+    if counts is not None:
+        payload.update(counts)
+    return payload
+
+
+def _playlist_counts(conn, playlist_id: int) -> dict:
+    row = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS channel_count,
+            COALESCE(SUM(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END), 0) AS pending,
+            COALESCE(SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END), 0) AS online,
+            COALESCE(SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END), 0) AS offline
+        FROM channels
+        WHERE playlist_id = ?
+        """,
+        (playlist_id,),
+    ).fetchone()
+    queued = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM verify_queue
+        JOIN channels ON channels.id = verify_queue.channel_id
+        WHERE channels.playlist_id = ?
+        """,
+        (playlist_id,),
+    ).fetchone()["n"]
+    count = int(row["channel_count"])
+    pending = int(row["pending"])
+    online = int(row["online"])
+    offline = int(row["offline"])
+    if count == 0:
+        status = "empty"
+    elif pending:
+        status = "checking"
+    elif online and offline:
+        status = "mixed"
+    elif offline:
+        status = "offline"
+    else:
+        status = "online"
+    return {
+        "channel_count": count,
+        "pending": pending,
+        "online": online,
+        "offline": offline,
+        "queued": int(queued),
+        "status": status,
+    }
+
+
+def _clean_name(name: str) -> str:
+    cleaned = name.strip()
+    if not cleaned:
+        raise HTTPException(400, "playlist name is empty")
+    return cleaned
+
+
+def _reject_duplicate_playlist(conn, name: str, url: str | None) -> None:
+    if url:
+        existing = conn.execute("SELECT id FROM playlists WHERE source_url = ?", (url,)).fetchone()
+        if existing is not None:
+            raise HTTPException(409, "a playlist with this URL already exists")
+    existing = conn.execute(
+        "SELECT id FROM playlists WHERE name = ? COLLATE NOCASE",
+        (name,),
+    ).fetchone()
+    if existing is not None:
+        raise HTTPException(409, "a playlist with this name already exists")
 
 
 @router.get("/api/health")
@@ -426,7 +495,7 @@ def list_playlists(request: Request) -> dict:
     conn = _db(request)
     try:
         rows = conn.execute("SELECT * FROM playlists ORDER BY name COLLATE NOCASE").fetchall()
-        return {"playlists": [_playlist_json(row) for row in rows]}
+        return {"playlists": [_playlist_json(row, _playlist_counts(conn, row["id"])) for row in rows]}
     finally:
         conn.close()
 
@@ -434,13 +503,19 @@ def list_playlists(request: Request) -> dict:
 @router.post("/api/playlists", status_code=201)
 def create_playlist_url(request: Request, body: PlaylistURL) -> dict:
     interval = _interval(body.interval_minutes)
+    name = _clean_name(body.name)
     try:
         text = fetch_playlist_text(body.url)
     except PlaylistFetchError as exc:
         raise HTTPException(422, str(exc)) from exc
+    try:
+        parse_playlist(text)
+    except PlaylistParseError as exc:
+        raise HTTPException(400, str(exc)) from exc
     conn = _db(request)
     try:
-        playlist_id = _create_playlist(conn, body.name, body.url, interval)
+        _reject_duplicate_playlist(conn, name, body.url)
+        playlist_id = _create_playlist(conn, name, body.url, interval)
         conn.commit()
     finally:
         conn.close()
@@ -460,6 +535,7 @@ async def upload_playlist(
     file: UploadFile = File(...),
 ) -> dict:
     interval = _interval(interval_minutes)
+    cleaned = _clean_name(name)
     raw = await file.read(MAX_PLAYLIST_BYTES + 1)
     if len(raw) > MAX_PLAYLIST_BYTES:
         raise HTTPException(413, "playlist is too large")
@@ -467,9 +543,14 @@ async def upload_playlist(
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise HTTPException(400, "playlist must be UTF-8") from exc
+    try:
+        parse_playlist(text)
+    except PlaylistParseError as exc:
+        raise HTTPException(400, str(exc)) from exc
     conn = _db(request)
     try:
-        playlist_id = _create_playlist(conn, name, None, interval)
+        _reject_duplicate_playlist(conn, cleaned, None)
+        playlist_id = _create_playlist(conn, cleaned, None, interval)
         conn.commit()
     finally:
         conn.close()

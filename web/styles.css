@@ -497,7 +497,7 @@ button:focus-visible,
   background: rgba(0, 0, 0, 0.6);
 }
 
-#settings {
+#settings, #import {
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -507,7 +507,61 @@ button:focus-visible,
   padding: 24px;
 }
 
-#settings[hidden], #toast[hidden], #number-entry[hidden], #back-guide[hidden] { display: none; }
+#settings[hidden], #import[hidden], #toast[hidden], #number-entry[hidden], #back-guide[hidden] { display: none; }
+
+#import-panel {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px;
+  border-radius: 16px;
+  background: rgba(16, 18, 24, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#import-panel h2 { margin: 0 0 12px; }
+
+#import-panel form {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#import-panel label { display: grid; gap: 6px; }
+
+#import-panel input[type="text"],
+#import-panel input[type="url"],
+#import-panel input[type="number"] {
+  width: 100%;
+  min-height: 44px;
+  background: #12141c;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 0 10px;
+}
+
+#import-error {
+  min-height: 1.2em;
+  margin: 0 0 12px;
+  color: #f0b4b4;
+}
+
+.source-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.source-row .text { flex: 1; min-width: 0; }
+.source-row .name { display: block; }
+.source-row .meta { display: block; color: var(--dim); font-size: 13px; }
+.source-row button { flex: none; }
 
 #settings-form {
   width: min(560px, 100%);
