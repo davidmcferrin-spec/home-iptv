@@ -98,6 +98,14 @@ def test_transcode_plan_copies_webrtc_codecs_and_converts_the_rest():
     plan, delivery = delivery_for(bframes)
     assert plan == "hls-copy"
     assert delivery == "hls"
+    smooth = ffmpeg_command("https://example.test/live.m3u8", "rtsp://mediamtx:8554/ch1", "hls-copy", smooth=True)
+    assert "nobuffer" not in smooth[smooth.index("-fflags") + 1]
+    assert "-map" in smooth
+    assert "0:v:0" in smooth
+    assert "-use_wallclock_as_timestamps" in smooth
+    low = ffmpeg_command("http://example.test/a.ts", "rtsp://mediamtx:8554/ch1", "audio", smooth=False)
+    assert "nobuffer" in low[low.index("-fflags") + 1]
+    assert "-use_wallclock_as_timestamps" not in low
     copied = ffmpeg_command("http://example.test/a.ts", "rtsp://mediamtx:8554/ch1", "hls-copy")
     assert copied[copied.index("-c:v") + 1] == "copy"
     assert "aac" in copied

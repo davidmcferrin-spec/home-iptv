@@ -149,6 +149,7 @@ class SettingsPatch(BaseModel):
     public_hls_base: str | None = None
     webrtc_additional_host: str | None = None
     playlist_group: str | None = None
+    playback_profile: str | None = None
 
 
 class EpgURL(BaseModel):
@@ -1300,6 +1301,7 @@ def get_settings(request: Request) -> dict:
             "public_hls_base": _stored(conn, "public_hls_base"),
             "webrtc_additional_host": _stored(conn, "webrtc_additional_host"),
             "playlist_group": playlist_group(conn),
+            "playback_profile": (setting(conn, "playback_profile") or "smooth"),
             "effective_http_base": playback_base(http_base, hostname, _port("WEB_PORT", 9595), scheme),
             "effective_webrtc_base": playback_base(webrtc_base, hostname, _port("WEBRTC_PORT", 8889), scheme),
             "effective_hls_base": playback_base(hls_base, hostname, _port("HLS_PORT", 8888), scheme),
@@ -1354,6 +1356,11 @@ def patch_settings(request: Request, body: SettingsPatch) -> dict:
             set_setting(conn, "webrtc_additional_host", data["webrtc_additional_host"].strip())
         if "hdhr_emulation" in data and data["hdhr_emulation"] is not None:
             set_setting(conn, "hdhr_emulation", "1" if data["hdhr_emulation"] else "0")
+        if "playback_profile" in data and data["playback_profile"] is not None:
+            profile = data["playback_profile"].strip().lower()
+            if profile not in {"smooth", "low"}:
+                raise HTTPException(400, "playback_profile must be smooth or low")
+            set_setting(conn, "playback_profile", profile)
         if "playlist_group" in data and data["playlist_group"] is not None:
             group = data["playlist_group"].strip().lower()
             if group not in {"tag", "language", "country", "source"}:
@@ -1367,4 +1374,9 @@ def patch_settings(request: Request, body: SettingsPatch) -> dict:
         conn.commit()
     finally:
         conn.close()
+    if data.get("playback_profile"):
+        try:
+            request.app.state.hub.apply_playback_profile()
+        except MediaMTXError as exc:
+            log.warning("MediaMTX did not apply the playback profile: %s", exc)
     return get_settings(request)

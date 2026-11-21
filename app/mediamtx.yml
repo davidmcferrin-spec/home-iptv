@@ -9,9 +9,9 @@ rtspTransports: [tcp]
 hls: true
 hlsAddress: :8888
 hlsAllowOrigins: ["*"]
-hlsVariant: lowLatency
-hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
+hlsVariant: mpegts
+hlsSegmentDuration: 2s
+hlsPartDuration: 1s
 
 webrtc: true
 webrtcAddress: :8889

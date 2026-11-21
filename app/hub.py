@@ -87,7 +87,12 @@ def delivery_for(channel: dict) -> tuple[str, str]:
     return transcode_plan(video, audio), "webrtc"
 
 
-def ffmpeg_command(source_url: str, publish_url: str, plan: str) -> list[str]:
+def ffmpeg_command(source_url: str, publish_url: str, plan: str, smooth: bool = True) -> list[str]:
+    flags = "+genpts+discardcorrupt"
+    if smooth:
+        flags += "+igndts"
+    else:
+        flags += "+nobuffer"
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -96,12 +101,19 @@ def ffmpeg_command(source_url: str, publish_url: str, plan: str) -> list[str]:
         "-rw_timeout",
         "15000000",
         "-fflags",
-        "+genpts+discardcorrupt+nobuffer",
-        "-flags",
-        "low_delay",
-        "-i",
-        source_url,
+        flags,
     ]
+    if not smooth:
+        command += ["-flags", "low_delay"]
+    else:
+        command += ["-probesize", "5000000", "-analyzeduration", "5000000"]
+    if source_url.startswith(("http://", "https://")):
+        command += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+    if smooth and ".m3u8" in source_url.split("?", 1)[0].lower():
+        command += ["-use_wallclock_as_timestamps", "1"]
+    if smooth:
+        command += ["-avoid_negative_ts", "make_zero"]
+    command += ["-i", source_url, "-map", "0:v:0", "-map", "0:a:0?"]
     video_encode = [
         "-c:v",
         "libx264",
@@ -120,17 +132,21 @@ def ffmpeg_command(source_url: str, publish_url: str, plan: str) -> list[str]:
         "-keyint_min",
         "60",
     ]
+    audio_clock = ["-af", "aresample=async=1000:first_pts=0"] if smooth else []
     if plan == "copy":
         command += ["-c", "copy"]
     elif plan == "audio":
-        command += ["-c:v", "copy", "-c:a", "libopus", "-ar", "48000", "-ac", "2", "-b:a", "96k"]
+        command += ["-c:v", "copy", *audio_clock, "-c:a", "libopus", "-ar", "48000", "-ac", "2", "-b:a", "96k"]
     elif plan in {"hls-copy", "hls-audio"}:
-        command += ["-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-ac", "2"]
+        command += ["-c:v", "copy", *audio_clock, "-c:a", "aac", "-b:a", "128k", "-ac", "2"]
     elif plan == "video":
         command += [*video_encode, "-c:a", "copy"]
     else:
         command += [*video_encode, "-c:a", "libopus", "-ar", "48000", "-ac", "2", "-b:a", "96k"]
-    command += ["-muxdelay", "0", "-muxpreload", "0", "-f", "rtsp", "-rtsp_transport", "tcp", publish_url]
+    command += ["-max_muxing_queue_size", "1024"]
+    if not smooth:
+        command += ["-muxdelay", "0", "-muxpreload", "0"]
+    command += ["-f", "rtsp", "-rtsp_transport", "tcp", publish_url]
     return command
 
 
@@ -219,7 +235,24 @@ class Hub:
         chosen = (host or self.cfg.webrtc_additional_host or "").strip()
         if not chosen:
             return
-        self.mediamtx.patch_global({"webrtcAdditionalHosts": [chosen]})
+        self.mediamtx.patch_global({"webrtcAdditionalHosts": [chosen], "webrtcIPsFromInterfaces": False})
+
+    def playback_profile(self) -> str:
+        conn = connect(self.cfg.database_path)
+        try:
+            raw = (setting(conn, "playback_profile") or "smooth").strip().lower()
+        finally:
+            conn.close()
+        if raw not in {"smooth", "low"}:
+            return "smooth"
+        return raw
+
+    def apply_playback_profile(self) -> None:
+        if self.playback_profile() == "low":
+            payload = {"hlsVariant": "lowLatency", "hlsSegmentDuration": "1s", "hlsPartDuration": "200ms"}
+        else:
+            payload = {"hlsVariant": "mpegts", "hlsSegmentDuration": "2s", "hlsPartDuration": "1s"}
+        self.mediamtx.patch_global(payload)
 
     def idle_seconds(self) -> int:
         conn = connect(self.cfg.database_path)
@@ -376,12 +409,13 @@ class Hub:
         channel_id = int(channel["id"])
         path = f"ch{channel_id}"
         plan, delivery = delivery_for(channel)
+        smooth = self.playback_profile() == "smooth"
         try:
             self.mediamtx.ensure_path(path)
         except MediaMTXError as exc:
             raise StreamStartError(str(exc)) from exc
         publish = self.rtsp_url(channel_id)
-        command = ffmpeg_command(channel["url"], publish, plan)
+        command = ffmpeg_command(channel["url"], publish, plan, smooth=smooth)
         log_dir = Path(self.cfg.data_dir) / "streams"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = open(log_dir / f"{path}.log", "wb")
@@ -432,6 +466,7 @@ class Hub:
             "llhls_url": f"{self.cfg.public_hls_base}/{stream.path}/index.m3u8",
             "transcode": stream.plan,
             "playback": stream.delivery,
+            "playback_profile": self.playback_profile(),
             "idle_timeout_seconds": self.idle_seconds(),
             "upstream_pulls": 1,
         }

@@ -501,16 +501,10 @@ function renderPhone() {
 function placeDim() {
   const dim = document.getElementById("dim");
   const chrome = document.getElementById("stage-chrome");
-  if (isPhone()) {
-    dim.hidden = true;
-    chrome.style.cssText = "";
-    return;
-  }
-  const box = document.getElementById("preview").getBoundingClientRect();
-  dim.style.cssText = `top:${box.top}px;left:${box.left}px;width:${box.width}px;height:${box.height}px;`;
-  dim.hidden = false;
-  if (chrome.parentElement !== document.body) document.body.appendChild(chrome);
-  chrome.style.cssText = `position:fixed;z-index:12;top:${box.top}px;left:${box.left}px;width:${box.width}px;height:${box.height}px;pointer-events:none;`;
+  const stage = document.getElementById("stage");
+  dim.hidden = true;
+  chrome.style.cssText = "";
+  if (chrome.parentElement !== stage) stage.appendChild(chrome);
 }
 
 function render() {
@@ -598,7 +592,7 @@ function stopStallWatch() {
   stallTimer = 0;
 }
 
-function armStallWatch(onStall) {
+function armStallWatch(onStall, limitMs = 8000) {
   stopStallWatch();
   let last = -1;
   let stillSince = 0;
@@ -610,7 +604,7 @@ function armStallWatch(onStall) {
       stillSince = performance.now();
       return;
     }
-    if (performance.now() - stillSince >= 4000) {
+    if (performance.now() - stillSince >= limitMs) {
       stopStallWatch();
       onStall();
     }
@@ -619,8 +613,7 @@ function armStallWatch(onStall) {
 
 async function tune(channel) {
   rememberTune(channel);
-  if (isPhone()) document.documentElement.classList.add("video-full");
-  document.getElementById("back-guide").hidden = !isPhone();
+  document.getElementById("back-guide").hidden = true;
   showStarting(true);
   stopStallWatch();
   let response;
@@ -649,10 +642,11 @@ async function tune(channel) {
     return;
   }
   const info = await response.json();
+  const smooth = info.playback_profile !== "low";
   const useHls = info.playback === "hls";
   let whepError = null;
   try {
-    if (useHls) await playHls(info.llhls_url);
+    if (useHls) await playHls(info.llhls_url, smooth);
     else await playWhep(info.whep_url);
   } catch (err) {
     if (!(err instanceof Error)) throw err;
@@ -664,7 +658,7 @@ async function tune(channel) {
       return;
     }
     try {
-      await playHls(info.llhls_url);
+      await playHls(info.llhls_url, smooth);
     } catch (hlsErr) {
       if (!(hlsErr instanceof Error)) throw hlsErr;
       showStarting(false);
@@ -674,20 +668,31 @@ async function tune(channel) {
     }
   }
   showStarting(false);
+  let recovered = false;
   armStallWatch(async () => {
-    if (hlsPlayer || video.canPlayType("application/vnd.apple.mpegurl") && video.src) {
-      toast("HLS playback stalled");
+    if (smooth && hlsPlayer && !recovered) {
+      recovered = true;
+      hlsPlayer.recoverMediaError();
+      armStallWatch(() => toast("Playback stalled"));
+      return;
+    }
+    if (hlsPlayer || (video.canPlayType("application/vnd.apple.mpegurl") && video.src)) {
+      toast("Playback stalled");
+      return;
+    }
+    if (smooth) {
+      toast("Playback stalled");
       return;
     }
     try {
-      await playHls(info.llhls_url);
+      await playHls(info.llhls_url, smooth);
       showStarting(false);
-      armStallWatch(() => toast("HLS playback stalled"));
+      armStallWatch(() => toast("Playback stalled"));
     } catch (hlsErr) {
-      toast(hlsErr instanceof Error ? hlsErr.message : "HLS playback stalled");
+      toast(hlsErr instanceof Error ? hlsErr.message : "Playback stalled");
     }
-  });
-  if (whepError) toast(`WebRTC stalled, using HLS. ${whepError.message}`);
+  }, smooth ? 8000 : 4000);
+  if (whepError) toast(`WebRTC did not start, using HLS. ${whepError.message}`);
   render();
 }
 
@@ -794,10 +799,23 @@ async function postWhep(url, sdp) {
   }
 }
 
-async function playHls(url) {
+function hlsOptions(smooth) {
+  if (!smooth) return { lowLatencyMode: true, backBufferLength: 0, liveSyncDurationCount: 1, maxBufferLength: 4 };
+  return {
+    lowLatencyMode: false,
+    backBufferLength: 30,
+    liveSyncDurationCount: 3,
+    liveMaxLatencyDurationCount: 10,
+    maxLiveSyncPlaybackRate: 1,
+    maxBufferLength: 20,
+    maxMaxBufferLength: 40,
+  };
+}
+
+async function playHls(url, smooth = true) {
   closePlayback();
   if (window.Hls && window.Hls.isSupported()) {
-    const player = new window.Hls({ lowLatencyMode: true, backBufferLength: 0 });
+    const player = new window.Hls(hlsOptions(smooth));
     hlsPlayer = player;
     player.attachMedia(video);
     const deadline = performance.now() + 15000;
@@ -841,7 +859,7 @@ async function playHls(url) {
     await video.play();
     return;
   }
-  throw new Error("HLS fallback failed: this browser cannot play LL-HLS");
+  throw new Error("HLS playback failed: this browser cannot play HLS");
 }
 
 function tuneRelative(step) {
@@ -944,6 +962,7 @@ async function loadServerSettings() {
   document.getElementById("set-verify-timeout").value = body.verify_timeout_seconds;
   document.getElementById("set-verify-interval").value = body.verify_interval_minutes;
   document.getElementById("set-idle").value = body.idle_timeout_seconds;
+  document.getElementById("set-playback-profile").value = body.playback_profile === "low" ? "low" : "smooth";
   document.getElementById("set-emulation").checked = body.hdhr_emulation;
   document.getElementById("port-http").value = body.ports.http;
   document.getElementById("port-webrtc").value = body.ports.webrtc;
@@ -1055,6 +1074,7 @@ async function saveServerSettings() {
     verify_timeout_seconds: Number(document.getElementById("set-verify-timeout").value),
     verify_interval_minutes: Number(document.getElementById("set-verify-interval").value),
     idle_timeout_seconds: Number(document.getElementById("set-idle").value),
+    playback_profile: document.getElementById("set-playback-profile").value,
     hdhr_emulation: document.getElementById("set-emulation").checked,
     playlist_group: document.getElementById("set-playlist-group").value,
   };
@@ -1162,7 +1182,34 @@ function toggleWindow() {
   document.getElementById("back-guide").hidden = !document.documentElement.classList.contains("video-full");
 }
 
+function setupPip() {
+  const button = document.getElementById("pip");
+  const safari = typeof video.webkitSetPresentationMode === "function";
+  if (!document.pictureInPictureEnabled && !safari) {
+    button.hidden = true;
+    return;
+  }
+  button.hidden = false;
+  button.addEventListener("click", async () => {
+    try {
+      if (document.pictureInPictureElement === video) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      if (safari && !document.pictureInPictureEnabled) {
+        const next = video.webkitPresentationMode === "picture-in-picture" ? "inline" : "picture-in-picture";
+        video.webkitSetPresentationMode(next);
+        return;
+      }
+      await video.requestPictureInPicture();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Picture in picture failed");
+    }
+  });
+}
+
 document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+setupPip();
 document.getElementById("expand").addEventListener("click", toggleWindow);
 document.getElementById("video").addEventListener("dblclick", toggleFullscreen);
 
