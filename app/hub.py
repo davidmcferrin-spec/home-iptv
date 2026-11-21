@@ -109,8 +109,8 @@ def ffmpeg_command(source_url: str, publish_url: str, plan: str, smooth: bool = 
         command += ["-probesize", "5000000", "-analyzeduration", "5000000"]
     if source_url.startswith(("http://", "https://")):
         command += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
-    if smooth and ".m3u8" in source_url.split("?", 1)[0].lower():
-        command += ["-use_wallclock_as_timestamps", "1"]
+    # Do not restamp HLS packets with the wall clock. A segment arrives as a burst,
+    # so those frames would share one timestamp and the browser would drop them.
     if smooth:
         command += ["-avoid_negative_ts", "make_zero"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", "0:a:0?"]
