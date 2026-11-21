@@ -72,6 +72,8 @@ class ChannelPatch(BaseModel):
     country: str | None = None
     adult: bool | None = None
     guide_number: str | None = None
+    logo_url: str | None = None
+    tvg_id: str | None = None
 
 
 class BulkPatch(BaseModel):

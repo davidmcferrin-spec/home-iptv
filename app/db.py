@@ -168,9 +168,19 @@ def init_db(path: str) -> None:
             """
         )
         _seed_settings(conn)
+        _ensure_column(conn, "playlists", "epg_url", "TEXT")
+        _ensure_column(conn, "channels", "logo_source", "TEXT")
+        _ensure_column(conn, "channels", "guide_source", "TEXT")
+        _ensure_column(conn, "channels", "guide_match_id", "TEXT")
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, name: str, declaration: str) -> None:
+    present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if name not in present:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
 
 
 def _seed_settings(conn: sqlite3.Connection) -> None:
@@ -186,6 +196,7 @@ def _seed_settings(conn: sqlite3.Connection) -> None:
         "public_webrtc_base": "",
         "public_hls_base": "",
         "webrtc_additional_host": "",
+        "guide_refreshed_at": "",
         "device_id": "",
     }
     for key, value in defaults.items():

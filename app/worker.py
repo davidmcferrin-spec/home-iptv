@@ -99,6 +99,9 @@ def maintain(database_path: str, cfg: Settings) -> None:
     if added:
         log.info("queued %s channel checks", added)
     reimport_due(database_path)
+    from app.guide_data import refresh_due
+
+    refresh_due(database_path)
 
 
 def worker_loop(stop: threading.Event, cfg: Settings | None = None) -> None:

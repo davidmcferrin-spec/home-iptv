@@ -73,8 +73,8 @@ def import_playlist_text(database_path: str, playlist_id: int, text: str) -> dic
                 conn.execute("DELETE FROM channels WHERE id = ?", (row["id"],))
                 removed += 1
         conn.execute(
-            "UPDATE playlists SET last_imported_at = ? WHERE id = ?",
-            (utcnow(), playlist_id),
+            "UPDATE playlists SET last_imported_at = ?, epg_url = ? WHERE id = ?",
+            (utcnow(), parsed.epg_url, playlist_id),
         )
         conn.commit()
         return {

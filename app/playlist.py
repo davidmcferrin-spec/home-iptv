@@ -25,6 +25,7 @@ class ParsedChannel:
 class ParseResult:
     channels: list[ParsedChannel] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    epg_url: str | None = None
 
 
 def _split_extinf(body: str) -> tuple[str, str]:
@@ -61,6 +62,10 @@ def parse_playlist(text: str) -> ParseResult:
     for line_no, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if not line:
+            continue
+        if line.startswith("#EXTM3U"):
+            attrs = {key.lower(): value for key, value in ATTR_RE.findall(line)}
+            result.epg_url = _blank(attrs.get("url-tvg")) or _blank(attrs.get("x-tvg-url"))
             continue
         if line.startswith("#EXTINF"):
             flush_missing(line_no)

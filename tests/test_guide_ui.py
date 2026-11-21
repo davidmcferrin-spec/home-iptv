@@ -202,6 +202,20 @@ def test_guide_screenshots_and_layouts(browser, guide_url):
             context.close()
 
 
+def test_settings_screenshots(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    for name, width, height in (("desktop", 1920, 1080), ("phone-portrait", 412, 915)):
+        context, page = _open(browser, guide_url, width, height)
+        try:
+            page.get_by_role("button", name="Settings").click()
+            page.locator("#port-note").wait_for()
+            page.locator("#set-idle").scroll_into_view_if_needed()
+            page.screenshot(path=str(artifacts / f"settings-{name}.png"))
+        finally:
+            context.close()
+
+
 def test_adult_channels_reset_with_the_session(browser, guide_url):
     context, page = _open(browser, guide_url, 1280, 800)
     try:
@@ -258,8 +272,8 @@ def test_import_screen_at_each_viewport(browser, guide_url):
             page.locator("#upload-name").fill(name)
             page.get_by_role("button", name="Upload").click()
             row = page.locator("#playlist-list").get_by_text(name, exact=True)
-            row.wait_for()
-            page.locator("#playlist-list").get_by_text("Checking").first.wait_for()
+            row.wait_for(state="attached")
+            row.locator("xpath=..").get_by_text("Checking").wait_for(state="attached")
             row.scroll_into_view_if_needed()
             page.screenshot(path=str(artifacts / f"import-{name}.png"))
         finally:
