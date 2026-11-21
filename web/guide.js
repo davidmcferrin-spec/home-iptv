@@ -88,7 +88,7 @@ function syncLayout() {
   const hint = document.getElementById("hint-text");
   hint.textContent = isPhone()
     ? "Tap a channel. Swipe the grid."
-    : "Arrows move · Enter watch · 0-9 tune · PgUp channel";
+    : "Arrows move · Enter watch · 0-9 tune · i stats";
 }
 
 function displayName(kind, code) {
@@ -586,6 +586,196 @@ function sleep(ms) {
 }
 
 let stallTimer = 0;
+const STATS_KEY = "home-iptv-stats-overlay";
+let statsWanted = false;
+let statsSaveError = "";
+let tunedName = "";
+let playbackMode = "";
+let playbackProfile = "";
+let stallCount = 0;
+let hlsErrorCount = null;
+let qualitySamples = [];
+let bytesSample = null;
+let statsReadError = "";
+let lastStallAt = 0;
+let latestSnapshot = null;
+
+function statsApi() {
+  return window.playbackStats;
+}
+
+function setStatsOpen(on) {
+  statsWanted = on;
+  try {
+    localStorage.setItem(STATS_KEY, on ? "1" : "0");
+    statsSaveError = "";
+  } catch (err) {
+    if (err instanceof DOMException) statsSaveError = "Could not save the stats toggle";
+    else throw err;
+  }
+  applyStatsVisibility();
+  paintStats(latestSnapshot);
+}
+
+function applyStatsVisibility() {
+  const pip = stage.classList.contains("is-pip");
+  document.getElementById("stats").hidden = !statsWanted || pip;
+  document.getElementById("stats-toggle").setAttribute("aria-pressed", statsWanted ? "true" : "false");
+}
+
+function beginStats(channel) {
+  tunedName = channel ? `${channel.guide_number} ${channel.title}`.trim() : "";
+  playbackMode = "";
+  playbackProfile = "";
+  stallCount = 0;
+  hlsErrorCount = null;
+  qualitySamples = [];
+  bytesSample = null;
+  statsReadError = "";
+  lastStallAt = 0;
+  latestSnapshot = null;
+  document.getElementById("stats-copy-note").textContent = "";
+  paintStats(null);
+}
+
+function notePlayback(mode, smooth) {
+  playbackMode = mode;
+  playbackProfile = smooth ? "Smooth" : "Low latency";
+}
+
+function noteStall() {
+  const now = performance.now();
+  if (now - lastStallAt < 1000) return;
+  lastStallAt = now;
+  stallCount += 1;
+}
+
+function bufferAheadSeconds() {
+  const time = video.currentTime;
+  if (!Number.isFinite(time)) return null;
+  const ranges = video.buffered;
+  for (let index = 0; index < ranges.length; index += 1) {
+    if (ranges.start(index) - 0.05 <= time && time <= ranges.end(index) + 0.05) {
+      return Math.max(0, ranges.end(index) - time);
+    }
+  }
+  return ranges.length ? 0 : null;
+}
+
+function takeSnapshot(webrtc) {
+  const api = statsApi();
+  const quality = api.readPlaybackQuality(
+    typeof video.getVideoPlaybackQuality === "function"
+      ? video.getVideoPlaybackQuality()
+      : {
+          droppedVideoFrames: video.webkitDroppedFrameCount,
+          totalVideoFrames: video.webkitDecodedFrameCount,
+        }
+  );
+  const now = Date.now();
+  if (quality.dropped != null && quality.total != null) {
+    qualitySamples = api.pushQualitySample(
+      qualitySamples,
+      { t: now, dropped: quality.dropped, total: quality.total },
+      now,
+      10000
+    );
+  }
+  let codec = null;
+  let bitrate = null;
+  if (hlsPlayer && hlsPlayer.levels && hlsPlayer.currentLevel >= 0) {
+    const level = hlsPlayer.levels[hlsPlayer.currentLevel];
+    codec = api.codecFromHlsLevel(level);
+    if (level && typeof level.bitrate === "number" && level.bitrate > 0) bitrate = level.bitrate;
+  }
+  if (webrtc && webrtc.codec) codec = webrtc.codec;
+  if (webrtc && webrtc.bitrate != null) bitrate = webrtc.bitrate;
+  const width = video.videoWidth || 0;
+  const height = video.videoHeight || 0;
+  latestSnapshot = {
+    channel: tunedName,
+    timestamp: new Date(now).toISOString(),
+    userAgent: navigator.userAgent,
+    mode: playbackMode,
+    profile: playbackProfile,
+    resolution: width && height ? `${width}x${height}` : "",
+    codec,
+    dropped: quality.dropped,
+    total: quality.total,
+    droppedPercent: api.droppedPercent(quality.dropped, quality.total),
+    droppedPercent10s: api.windowDroppedPercent(qualitySamples, now, 10000),
+    bufferAhead: bufferAheadSeconds(),
+    stalls: stallCount,
+    bitrate,
+    hlsErrors: hlsErrorCount,
+    jitter: webrtc && webrtc.jitter != null ? webrtc.jitter : null,
+    packetsLost: webrtc && webrtc.packetsLost != null ? webrtc.packetsLost : null,
+    framesDecoded: webrtc && webrtc.framesDecoded != null ? webrtc.framesDecoded : null,
+    framesDropped: webrtc && webrtc.framesDropped != null ? webrtc.framesDropped : null,
+    error: statsReadError,
+  };
+  return latestSnapshot;
+}
+
+function paintStats(snapshot) {
+  const body = document.getElementById("stats-body");
+  if (!body) return;
+  const fields = snapshot || {
+    mode: playbackMode,
+    profile: playbackProfile,
+    stalls: stallCount,
+    hlsErrors: hlsErrorCount,
+  };
+  body.textContent = statsApi().statRows(fields).map((row) => `${row[0]}: ${row[1]}`).join("\n");
+  document.getElementById("stats-error").textContent = [statsSaveError, statsReadError].filter(Boolean).join(" ");
+}
+
+async function collectStats() {
+  let webrtc = null;
+  if (peer && typeof peer.getStats === "function") {
+    try {
+      const report = await peer.getStats();
+      const entries = [];
+      report.forEach((item) => entries.push(item));
+      const parsed = statsApi().codecFromReport(entries);
+      const now = Date.now();
+      let bitrate = null;
+      if (parsed.bytesReceived != null) {
+        bitrate = statsApi().bitrateFromBytes(bytesSample, { t: now, bytes: parsed.bytesReceived });
+        bytesSample = { t: now, bytes: parsed.bytesReceived };
+      }
+      webrtc = parsed;
+      webrtc.bitrate = bitrate;
+      if (statsReadError.indexOf("getStats") === 0) statsReadError = "";
+    } catch (err) {
+      statsReadError = err instanceof Error ? `getStats failed: ${err.message}` : "getStats failed";
+    }
+  }
+  paintStats(takeSnapshot(webrtc));
+}
+
+function watchHlsErrors(player) {
+  hlsErrorCount = 0;
+  player.on(window.Hls.Events.ERROR, () => {
+    hlsErrorCount += 1;
+  });
+}
+
+async function copyStats() {
+  const note = document.getElementById("stats-copy-note");
+  const fields = latestSnapshot || takeSnapshot(null);
+  const text = statsApi().formatStats(fields);
+  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+    note.textContent = "Clipboard is not available";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    note.textContent = "Copied";
+  } catch (err) {
+    note.textContent = err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed";
+  }
+}
 
 function stopStallWatch() {
   window.clearInterval(stallTimer);
@@ -613,6 +803,7 @@ function armStallWatch(onStall, limitMs = 8000) {
 
 async function tune(channel) {
   rememberTune(channel);
+  beginStats(channel);
   document.getElementById("back-guide").hidden = true;
   showStarting(true);
   stopStallWatch();
@@ -647,7 +838,7 @@ async function tune(channel) {
   let whepError = null;
   try {
     if (useHls) await playHls(info.llhls_url, smooth);
-    else await playWhep(info.whep_url);
+    else await playWhep(info.whep_url, smooth);
   } catch (err) {
     if (!(err instanceof Error)) throw err;
     whepError = err;
@@ -725,8 +916,9 @@ function waitForIce(connection) {
   });
 }
 
-async function playWhep(url) {
+async function playWhep(url, smooth = true) {
   closePlayback();
+  notePlayback("WebRTC", smooth);
   const connection = new RTCPeerConnection();
   peer = connection;
   connection.addTransceiver("video", { direction: "recvonly" });
@@ -814,9 +1006,11 @@ function hlsOptions(smooth) {
 
 async function playHls(url, smooth = true) {
   closePlayback();
+  notePlayback("HLS", smooth);
   if (window.Hls && window.Hls.isSupported()) {
     const player = new window.Hls(hlsOptions(smooth));
     hlsPlayer = player;
+    watchHlsErrors(player);
     player.attachMedia(video);
     const deadline = performance.now() + 15000;
     let wait = 400;
@@ -1209,6 +1403,40 @@ function setupPip() {
 }
 
 document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+document.getElementById("stats-toggle").addEventListener("click", () => setStatsOpen(!statsWanted));
+document.getElementById("stats-copy").addEventListener("click", () => {
+  copyStats().catch((err) => {
+    document.getElementById("stats-copy-note").textContent = err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed";
+  });
+});
+video.addEventListener("waiting", noteStall);
+video.addEventListener("stalled", noteStall);
+video.addEventListener("enterpictureinpicture", () => {
+  stage.classList.add("is-pip");
+  applyStatsVisibility();
+});
+video.addEventListener("leavepictureinpicture", () => {
+  stage.classList.remove("is-pip");
+  applyStatsVisibility();
+});
+video.addEventListener("webkitpresentationmodechanged", () => {
+  stage.classList.toggle("is-pip", video.webkitPresentationMode === "picture-in-picture");
+  applyStatsVisibility();
+});
+try {
+  statsWanted = localStorage.getItem(STATS_KEY) === "1";
+} catch (err) {
+  if (!(err instanceof DOMException)) throw err;
+}
+applyStatsVisibility();
+paintStats(null);
+window.setInterval(() => {
+  if (!peer && !hlsPlayer && !video.getAttribute("src") && !video.srcObject) return;
+  collectStats().catch((err) => {
+    statsReadError = err instanceof Error ? err.message : "Stats read failed";
+    paintStats(latestSnapshot);
+  });
+}, 1000);
 setupPip();
 document.getElementById("expand").addEventListener("click", toggleWindow);
 document.getElementById("video").addEventListener("dblclick", toggleFullscreen);
@@ -1425,7 +1653,9 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "s" || event.key === "S") {
     openSettings();
   } else if (event.key === "i" || event.key === "I") {
-    openImport();
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    event.preventDefault();
+    setStatsOpen(!statsWanted);
   } else if (event.key === "a" || event.key === "A") {
     setAdult(!showAdult());
   } else if (event.key === "g" || event.key === "G") {

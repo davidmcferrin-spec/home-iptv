@@ -75,6 +75,7 @@ button:focus-visible,
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 4;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -82,6 +83,83 @@ button:focus-visible,
   padding: 8px;
   pointer-events: none;
 }
+
+#stats {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 118px);
+  overflow: hidden;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: auto;
+}
+
+#stats[hidden] { display: none; }
+
+#stats pre {
+  flex: 1 1 auto;
+  margin: 0;
+  overflow: auto;
+  min-height: 0;
+  font: inherit;
+  white-space: pre-wrap;
+}
+
+#stats-foot { flex: 0 0 auto; }
+
+#stage:has(#stats:not([hidden])) #stage-label { visibility: hidden; }
+
+#stats-error,
+#stats-copy-note {
+  margin: 6px 0 0;
+  min-height: 0;
+  color: #f3d27a;
+}
+
+#stats-error:empty,
+#stats-copy-note:empty { display: none; }
+
+#stats-copy {
+  margin-top: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+html:not(.is-phone):not(.video-full) #stage:not(:fullscreen) #sound,
+html:not(.is-phone):not(.video-full) #stage:not(:fullscreen) #fullscreen,
+html:not(.is-phone):not(.video-full) #stage:not(:fullscreen) #expand,
+html:not(.is-phone):not(.video-full) #stage:not(:fullscreen) #pip,
+html:not(.is-phone):not(.video-full) #stage:not(:fullscreen) #stats-toggle {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+html:not(.is-phone):not(.video-full) #stats {
+  max-height: calc(100% - 56px);
+}
+
+html.video-full #stats,
+#stage:fullscreen #stats,
+#stage:-webkit-full-screen #stats {
+  font-size: 14px;
+  width: min(440px, 46vw);
+  right: auto;
+  max-height: calc(100% - 88px);
+}
+
+#stage.is-pip #stats { display: none; }
 
 #video, #stage-bars {
   position: absolute;
@@ -119,7 +197,7 @@ button:focus-visible,
   pointer-events: none;
 }
 
-#sound, #fullscreen, #expand, #pip {
+#sound, #fullscreen, #expand, #pip, #stats-toggle {
   pointer-events: auto;
   background: rgba(0, 0, 0, 0.55);
   min-height: 44px;
@@ -852,24 +930,30 @@ html.video-full #shell { display: block; }
 html.video-full #frame { display: block; padding: 0; }
 html.video-full #stage {
   position: fixed;
-  inset: 0;
+  left: 0;
+  top: 0;
   z-index: 30;
-  width: auto;
+  width: 100vw;
+  max-width: none;
   max-height: none;
-  height: 100%;
+  height: 100vh;
   margin: 0;
   border-radius: 0;
   aspect-ratio: auto;
+  justify-self: stretch;
 }
 html.is-phone.video-full #stage {
   position: fixed;
-  inset: 0;
+  left: 0;
+  top: 0;
   z-index: 20;
-  width: auto;
+  width: 100vw;
+  max-width: none;
   max-height: none;
-  height: 100%;
+  height: 100vh;
   margin: 0;
   aspect-ratio: auto;
+  justify-self: stretch;
 }
 
 .phone-row {
