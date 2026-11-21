@@ -11,7 +11,7 @@
   <div id="manager">
     <header class="manager-bar">
       <a class="chip" href="/">Guide</a>
-      <h1>Channels</h1>
+      <h1 title="Select rows, then Bulk edit. Name and number save when you leave the cell. Arrow keys move, X selects, E edits, and / searches.">Channels</h1>
       <input id="q" type="search" placeholder="Search name or number" aria-label="Search channels">
       <select id="f-status" aria-label="Status">
         <option value="">Any status</option>
@@ -38,11 +38,10 @@
       <button id="select-matching" type="button">Select matching</button>
       <span id="channel-count"></span>
     </header>
-    <p id="manager-hint">Select rows, then Bulk edit. A name or number saves when you leave the cell. Arrow keys move, X selects, E edits, and / searches.</p>
-    <div id="bulk-bar" hidden>
-      <span id="bulk-count"></span>
-      <button id="clear-selection" type="button">Clear</button>
-      <button id="open-bulk" type="button">Bulk edit</button>
+    <div id="bulk-bar">
+      <span id="bulk-count">0 selected</span>
+      <button id="clear-selection" type="button" disabled>Clear</button>
+      <button id="open-bulk" type="button" disabled>Bulk edit</button>
       <button id="undo" type="button">Undo</button>
     </div>
     <p id="loading" hidden>Loading channels...</p>
@@ -50,11 +49,21 @@
     <div id="table-wrap">
       <p id="empty-state" hidden>No channels match. Add a playlist from the guide, or clear the filters.</p>
       <table id="channel-table">
+        <colgroup>
+          <col class="col-check">
+          <col class="col-logo">
+          <col class="col-number">
+          <col class="col-name">
+          <col class="col-group">
+          <col class="col-status">
+          <col class="col-tags">
+          <col class="col-edit">
+        </colgroup>
         <thead>
           <tr>
             <th><input id="select-page" type="checkbox" aria-label="Select this page"></th>
             <th>Logo</th>
-            <th>Number</th>
+            <th><span class="wide-label">Number</span><span class="short-label">No.</span></th>
             <th>Name</th>
             <th>Group</th>
             <th>Status</th>
@@ -123,7 +132,6 @@
     <form id="bulk-form">
       <div class="bulk-head">
         <h2>Bulk edit</h2>
-        <p id="bulk-preview"></p>
       </div>
       <div class="bulk-body">
       <label>Group
@@ -159,9 +167,7 @@
       </label>
       <p id="bulk-error" role="alert"></p>
       <div class="settings-actions">
-        <button type="submit">Apply</button>
         <button id="bulk-ask-delete" type="button">Delete</button>
-        <button id="close-bulk" type="button">Cancel</button>
       </div>
       <div id="bulk-confirm" hidden>
         <p id="bulk-confirm-text"></p>
@@ -170,6 +176,11 @@
           <button id="bulk-cancel-delete" type="button">Back</button>
         </div>
       </div>
+      </div>
+      <div class="bulk-foot">
+        <p id="bulk-preview"></p>
+        <button type="submit">Apply</button>
+        <button id="close-bulk" type="button">Cancel</button>
       </div>
     </form>
   </aside>

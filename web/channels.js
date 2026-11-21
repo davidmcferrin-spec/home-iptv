@@ -97,7 +97,12 @@ function draw() {
     status.textContent = statusLabel(channel.status);
     const tags = document.createElement("span");
     tags.className = "tag-line";
-    tags.textContent = (channel.tags || []).map((tag) => tag.name).join(", ");
+    (channel.tags || []).forEach((tag) => {
+      const pill = document.createElement("span");
+      pill.className = "tag-pill";
+      pill.textContent = tag.name;
+      tags.appendChild(pill);
+    });
     [pick, logo(channel), number, name, text(channel.group_title || ""), status, tags, editButton(channel)].forEach((node) => {
       const td = document.createElement("td");
       td.appendChild(node);
@@ -155,14 +160,21 @@ function text(value) {
   return span;
 }
 
+function initials(channel) {
+  const mark = document.createElement("span");
+  mark.className = "logo-fallback";
+  const letters = (channel.title || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
+  mark.textContent = letters || "TV";
+  return mark;
+}
+
 function logo(channel) {
+  if (!channel.logo_url) return initials(channel);
   const img = document.createElement("img");
   img.className = "logo";
   img.alt = "";
   img.src = `/api/logo/${channel.id}`;
-  img.addEventListener("error", () => {
-    img.replaceWith(text((channel.title || "?").slice(0, 2).toUpperCase()));
-  });
+  img.addEventListener("error", () => img.replaceWith(initials(channel)));
   return img;
 }
 
@@ -217,9 +229,10 @@ async function saveField(channel, field, value, input) {
 }
 
 function updateBulk() {
-  const bar = document.getElementById("bulk-bar");
-  bar.hidden = selected.size === 0;
-  document.getElementById("bulk-count").textContent = selected.size === 1 ? "1 selected" : `${selected.size} selected`;
+  const count = selected.size;
+  document.getElementById("bulk-count").textContent = count === 1 ? "1 selected" : `${count} selected`;
+  document.getElementById("open-bulk").disabled = count === 0;
+  document.getElementById("clear-selection").disabled = count === 0;
 }
 
 function openBulk() {
