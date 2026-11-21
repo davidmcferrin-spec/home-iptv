@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,6 +23,30 @@ log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
+def _advertise_when_ready(stop: threading.Event, hub: Hub) -> None:
+    deadline = time.monotonic() + 30
+    while not stop.is_set() and time.monotonic() < deadline:
+        try:
+            hub.mediamtx.ready()
+        except MediaMTXError as exc:
+            log.info("MediaMTX API is not ready: %s", exc)
+            stop.wait(1)
+            continue
+        try:
+            hub.advertise_host()
+        except MediaMTXError as exc:
+            log.info("MediaMTX rejected the WebRTC host: %s", exc)
+            stop.wait(1)
+            continue
+        except httpx.HTTPError as exc:
+            log.info("MediaMTX rejected the WebRTC host: %s", exc)
+            stop.wait(1)
+            continue
+        return
+    if not stop.is_set():
+        log.warning("MediaMTX API did not answer before the app gave up waiting")
+
+
 def create_app() -> FastAPI:
     cfg = settings()
     hub = Hub(cfg, MediaMTXClient(cfg.mediamtx_api))
@@ -41,12 +66,9 @@ def create_app() -> FastAPI:
                 threading.Thread(target=worker_loop, args=(stop, cfg), name="verify-worker", daemon=True)
             )
         if cfg.embed_hub:
-            try:
-                hub.advertise_host()
-            except MediaMTXError as exc:
-                log.info("MediaMTX is not ready for WebRTC host configuration: %s", exc)
-            except httpx.HTTPError as exc:
-                log.info("MediaMTX is not ready for WebRTC host configuration: %s", exc)
+            threads.append(
+                threading.Thread(target=_advertise_when_ready, args=(stop, hub), name="mediamtx-advertise", daemon=True)
+            )
             threads.append(threading.Thread(target=hub.reap_loop, args=(stop,), name="stream-reaper", daemon=True))
         discovery = start_discovery(cfg, stop) if cfg.embed_discovery else None
         for thread in threads:
