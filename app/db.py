@@ -173,6 +173,7 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "channels", "guide_source", "TEXT")
         _ensure_column(conn, "channels", "guide_match_id", "TEXT")
         _ensure_column(conn, "channels", "programme_source", "TEXT")
+        _ensure_column(conn, "channels", "title_source", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS epg_feeds (
@@ -215,6 +216,7 @@ def _seed_settings(conn: sqlite3.Connection) -> None:
         "public_hls_base": "",
         "webrtc_additional_host": "",
         "guide_refreshed_at": "",
+        "playlist_group": "tag",
         "device_id": "",
     }
     for key, value in defaults.items():

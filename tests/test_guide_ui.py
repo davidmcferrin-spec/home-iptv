@@ -215,6 +215,28 @@ def test_settings_screenshots(browser, guide_url):
             assert page.locator("#feed-add").bounding_box()["height"] >= 44
             uk.scroll_into_view_if_needed()
             page.screenshot(path=str(artifacts / f"feeds-{name}.png"))
+            page.locator("#vlc-qr").scroll_into_view_if_needed()
+            page.locator("#vlc-playlist").wait_for()
+            assert page.locator("#copy-playlist").bounding_box()["height"] >= 44
+            page.screenshot(path=str(artifacts / f"settings-{name}.png"))
+        finally:
+            context.close()
+
+
+def test_editor_screenshots(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    for name, width, height in (("desktop", 1920, 1080), ("phone-portrait", 412, 915)):
+        context, page = _open(browser, guide_url, width, height)
+        try:
+            phone = width <= 720 or (height <= 500 and width <= 980)
+            pick = page.locator("#phone-list .pick" if phone else "#guide .pick").first
+            pick.check()
+            page.get_by_role("button", name="Edit", exact=True).click()
+            page.locator("#edit-title").wait_for()
+            assert page.locator("#edit-title").bounding_box()["height"] >= 44
+            assert page.locator("#edit-add-tag").bounding_box()["height"] >= 44
+            page.screenshot(path=str(artifacts / f"editor-{name}.png"))
         finally:
             context.close()
 

@@ -57,8 +57,11 @@ With the default `EMBED_WORKER=1`, the API process also runs the verifier.
 | POST | `/api/playlists/upload` | Import an M3U file (`name`, `file`) |
 | POST | `/api/playlists/{id}/import` | Reimport now |
 | GET | `/api/channels` | Search and filter. Query: `q`, `tag`, `status`, `language`, `country`, `sort` (`title`, `status`, `language`, `country`, `number`), `order`, `include_adult` |
-| PATCH | `/api/channels/{id}` | Set language, country, adult, or guide number by hand |
-| POST | `/api/channels/bulk` | The same fields, plus `add_tag_ids` and `remove_tag_ids` |
+| PATCH | `/api/channels/{id}` | Set name, logo, guide match, language, country, adult, guide number, or tags by hand |
+| POST | `/api/channels/bulk` | Set language, country, adult, or tags on many channels |
+| GET | `/playlist.m3u` | Online channels as M3U. Query: `tag`, `language`, `country`, `online`, `include_adult` |
+| GET | `/guide.xml` | XMLTV for the same filters |
+| GET | `/play/{id}` | Start the hub pull and redirect to LL-HLS |
 | POST | `/api/channels/{id}/watch` | Start or reuse the upstream pull. Returns WHEP and LL-HLS URLs |
 | GET | `/api/channels/{id}/stream` | Upstream pull count and MediaMTX readers |
 | POST | `/api/tags` | Create a tag. PATCH renames, DELETE removes |
@@ -73,7 +76,11 @@ With the default `EMBED_WORKER=1`, the API process also runs the verifier.
 
 Open `/` in a browser on the LAN. The guide is a dark overlay on the live picture: filter chips, a clock and date, a program info panel, and a channel grid. Arrow keys move the highlight, Enter watches the focused channel, Page Up and Page Down change channel, and the number keys tune a guide number. On a phone the guide collapses to a now-and-next list with a swipeable grid, and tapping a channel plays full screen. Sources (`I`, or the Sources button) uploads an M3U or M3U8 file, adds a playlist URL with an optional re-import interval, lists each playlist with checked, online, and offline counts, and adds an HDHomeRun by IP. A playlist header `url-tvg` or `x-tvg-url` is used for the guide. Otherwise channels are matched by tvg-id, then by name and country, against the public iptv-org channel and logo data. Programme listings come from that header when it is present, and from built-in public XMLTV feeds for the countries in the catalog (epgshare01 and epg.pw, no account). A channel matches a feed by tvg-id, including an iptv-org id, then by display name. Settings lists each feed with an enable switch, the last fetch, and how many channels matched, and can add another guide URL. Logos are filled when the playlist has none. A manual edit wins. A feed that fails is logged and skipped.
 
-The default view (country, languages, tags, sort, and the starting channel) stays in this browser (`localStorage`). Server settings, including the public bases, verify timing, the idle timeout, and HDHomeRun emulation, are stored in SQLite and edited from the same Settings screen. Host ports are shown there and changed in Compose or the template. Show adult content is in Settings and lasts for the browser session (`sessionStorage`). A new tab starts with adult channels hidden. Adult channels stay out of the grid, the list, search, and counts until that control is on.
+Edit, or the E key, changes the focused channel. Checkboxes select several channels and Edit then sets a tag, language, country, or the adult flag on all of them. A saved name, logo, guide match, language, country, adult flag, or tag is marked manual and is kept on the next import.
+
+The default view (country, languages, tags, sort, and the starting channel) stays in this browser (`localStorage`). Server settings, including the public bases, verify timing, the idle timeout, HDHomeRun emulation, and playlist folders, are stored in SQLite and edited from the same Settings screen. Playlist folders are the first tag or category, language, country, or source. Use in VLC shows the playlist and guide URLs, copy buttons, and a QR code for the playlist. Host ports are shown there and changed in Compose or the template. Show adult content is in Settings and lasts for the browser session (`sessionStorage`). A new tab starts with adult channels hidden. Adult channels stay out of the grid, the list, search, and counts until that control is on.
+
+On Android, Android TV, or Google TV, open VLC, choose Network, and paste the playlist URL from Settings. On iPad, open VLC, choose Network, and paste the same URL. VLC has no Roku app. A Roku needs a different app that accepts an M3U URL.
 
 If `POST /api/channels/{id}/watch` returns `all tuners busy`, the guide shows "All tuners are busy" and does not open another upstream pull.
 

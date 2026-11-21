@@ -64,6 +64,7 @@
       <button id="ch-down" type="button">CH-</button>
       <button id="ch-up" type="button">CH+</button>
       <button id="open-import" type="button">Sources</button>
+      <button id="open-editor" type="button">Edit</button>
       <button id="open-settings" type="button">Settings</button>
     </div>
   </div>
@@ -181,6 +182,25 @@
         <input id="feed-url" type="url" placeholder="https://" autocomplete="off">
       </label>
       <button id="feed-add" type="button">Add feed</button>
+      <h2>Use in VLC</h2>
+      <label>Playlist folders
+        <select id="set-playlist-group">
+          <option value="tag">First tag or category</option>
+          <option value="language">Language</option>
+          <option value="country">Country</option>
+          <option value="source">Source</option>
+        </select>
+      </label>
+      <p>The playlist lists online channels and points each stream at this server. Adult channels stay out unless the URL includes include_adult=1.</p>
+      <label>Playlist URL
+        <input id="vlc-playlist" type="text" readonly>
+      </label>
+      <button id="copy-playlist" type="button">Copy playlist URL</button>
+      <label>Guide URL
+        <input id="vlc-guide" type="text" readonly>
+      </label>
+      <button id="copy-guide" type="button">Copy guide URL</button>
+      <div id="vlc-qr"></div>
       <label class="check">
         <input id="set-adult" type="checkbox">
         Show adult content for this browser session
@@ -188,6 +208,53 @@
       <div class="settings-actions">
         <button type="submit">Save</button>
         <button id="close-settings" type="button">Close</button>
+      </div>
+    </form>
+  </div>
+  <div id="editor" hidden>
+    <form id="editor-form">
+      <h2 id="editor-title">Edit channel</h2>
+      <p id="editor-note">A value saved here is marked manual and stays through reimport.</p>
+      <div id="editor-single">
+        <label>Name
+          <input id="edit-title" type="text" maxlength="200" autocomplete="off">
+        </label>
+        <label>Logo URL
+          <input id="edit-logo" type="url" autocomplete="off">
+        </label>
+        <label>Guide match
+          <input id="edit-guide" type="text" maxlength="200" autocomplete="off">
+        </label>
+      </div>
+      <label>Language
+        <input id="edit-language" type="text" list="language-list" autocomplete="off" maxlength="16">
+      </label>
+      <datalist id="language-list"></datalist>
+      <label>Country
+        <input id="edit-country" type="text" list="country-list" autocomplete="off" maxlength="2">
+      </label>
+      <datalist id="country-list"></datalist>
+      <label class="check" id="edit-adult-one">
+        <input id="edit-adult" type="checkbox">
+        Adult
+      </label>
+      <label id="edit-adult-many">Adult
+        <select id="edit-adult-bulk">
+          <option value="">Leave unchanged</option>
+          <option value="1">Adult</option>
+          <option value="0">Not adult</option>
+        </select>
+      </label>
+      <div id="edit-tag-list"></div>
+      <label>Tag
+        <input id="edit-tag" type="text" list="tag-list" autocomplete="off" maxlength="80">
+      </label>
+      <datalist id="tag-list"></datalist>
+      <button id="edit-add-tag" type="button">Add tag</button>
+      <p id="editor-error" role="alert"></p>
+      <div class="settings-actions">
+        <button type="submit">Save</button>
+        <button id="close-editor" type="button">Close</button>
       </div>
     </form>
   </div>

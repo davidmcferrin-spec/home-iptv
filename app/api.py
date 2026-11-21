@@ -4,7 +4,8 @@ import sqlite3
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.catalog import (
@@ -19,6 +20,8 @@ from app.catalog import (
 )
 from app.db import connect, parse_stamp, setting, set_setting, stamp, utcnow
 from app.epg import EpgParseError
+from app.export import playlist_group, render_m3u, render_xmltv, selected_channels
+from app.qr import svg as qr_svg
 from app.hdhomerun import (
     DeviceFetchError,
     device_id_text,
@@ -74,6 +77,9 @@ class ChannelPatch(BaseModel):
     guide_number: str | None = None
     logo_url: str | None = None
     tvg_id: str | None = None
+    title: str | None = None
+    add_tag_ids: list[int] = Field(default_factory=list)
+    remove_tag_ids: list[int] = Field(default_factory=list)
 
 
 class BulkPatch(BaseModel):
@@ -109,6 +115,7 @@ class SettingsPatch(BaseModel):
     public_webrtc_base: str | None = None
     public_hls_base: str | None = None
     webrtc_additional_host: str | None = None
+    playlist_group: str | None = None
 
 
 class EpgURL(BaseModel):
@@ -263,13 +270,33 @@ def get_channel(request: Request, channel_id: int, include_adult: bool = False) 
         conn.close()
 
 
+def _apply_tags(conn, channel_id: int, add_ids: list[int], remove_ids: list[int]) -> None:
+    for tag_id in add_ids:
+        if conn.execute("SELECT id FROM tags WHERE id = ?", (tag_id,)).fetchone() is None:
+            raise HTTPException(404, f"tag {tag_id} not found")
+        conn.execute(
+            "INSERT INTO channel_tags(channel_id, tag_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            (channel_id, tag_id),
+        )
+    for tag_id in remove_ids:
+        conn.execute(
+            "DELETE FROM channel_tags WHERE channel_id = ? AND tag_id = ?",
+            (channel_id, tag_id),
+        )
+
+
 @router.patch("/api/channels/{channel_id}")
 def patch_channel(request: Request, channel_id: int, body: ChannelPatch) -> dict:
     fields = body.model_dump(exclude_unset=True)
+    add_ids = fields.pop("add_tag_ids", [])
+    remove_ids = fields.pop("remove_tag_ids", [])
     conn = _db(request)
     try:
+        if conn.execute("SELECT id FROM channels WHERE id = ?", (channel_id,)).fetchone() is None:
+            raise HTTPException(404, "channel not found")
         try:
             set_manual_fields(conn, channel_id, fields)
+            _apply_tags(conn, channel_id, add_ids, remove_ids)
         except KeyError:
             raise HTTPException(404, "channel not found") from None
         except ValueError as exc:
@@ -349,6 +376,90 @@ def watch_channel(request: Request, channel_id: int, include_adult: bool = False
         hls,
         scheme,
     )
+
+
+def _request_base(request: Request) -> str:
+    hostname = request_hostname(request.headers.get("host"))
+    port = request.url.port
+    host = request.headers.get("host") or hostname
+    if port and ":" not in host.split("]")[-1]:
+        host = f"{hostname}:{port}"
+    scheme = request.url.scheme or "http"
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def _share_query(tag: str, language: str, country: str, online: bool, include_adult: bool) -> str:
+    from urllib.parse import urlencode
+
+    pairs = {}
+    if tag:
+        pairs["tag"] = tag
+    if language:
+        pairs["language"] = language
+    if country:
+        pairs["country"] = country
+    if not online:
+        pairs["online"] = "0"
+    if include_adult:
+        pairs["include_adult"] = "1"
+    text = urlencode(pairs)
+    return f"?{text}" if text else ""
+
+
+@router.get("/playlist.m3u")
+def playlist_file(
+    request: Request,
+    tag: str = "",
+    language: str = "",
+    country: str = "",
+    online: bool = True,
+    include_adult: bool = False,
+) -> Response:
+    conn = _db(request)
+    try:
+        rows = selected_channels(conn, tag, language, country, online, include_adult)
+        base = _request_base(request)
+        query = _share_query(tag, language, country, online, include_adult)
+        body = render_m3u(conn, rows, base, f"{base}/guide.xml{query}", playlist_group(conn))
+    finally:
+        conn.close()
+    return Response(body, media_type="audio/x-mpegurl")
+
+
+@router.get("/guide.xml")
+def guide_file(
+    request: Request,
+    tag: str = "",
+    language: str = "",
+    country: str = "",
+    online: bool = True,
+    include_adult: bool = False,
+) -> Response:
+    conn = _db(request)
+    try:
+        rows = selected_channels(conn, tag, language, country, online, include_adult)
+        body = render_xmltv(conn, rows)
+    finally:
+        conn.close()
+    return Response(body, media_type="application/xml")
+
+
+@router.get("/play/{channel_id}")
+def play_redirect(request: Request, channel_id: int, include_adult: bool = False):
+    started = watch_channel(request, channel_id, include_adult)
+    return RedirectResponse(started["llhls_url"], status_code=302)
+
+
+@router.get("/api/share")
+def share_links(request: Request) -> dict:
+    base = _request_base(request)
+    playlist = f"{base}/playlist.m3u"
+    guide = f"{base}/guide.xml"
+    return {
+        "playlist_url": playlist,
+        "guide_url": guide,
+        "playlist_qr": qr_svg(playlist),
+    }
 
 
 @router.get("/api/channels/{channel_id}/stream")
@@ -1015,6 +1126,7 @@ def get_settings(request: Request) -> dict:
             "public_webrtc_base": _stored(conn, "public_webrtc_base"),
             "public_hls_base": _stored(conn, "public_hls_base"),
             "webrtc_additional_host": _stored(conn, "webrtc_additional_host"),
+            "playlist_group": playlist_group(conn),
             "effective_http_base": playback_base(http_base, hostname, _port("WEB_PORT", 9595), scheme),
             "effective_webrtc_base": playback_base(webrtc_base, hostname, _port("WEBRTC_PORT", 8889), scheme),
             "effective_hls_base": playback_base(hls_base, hostname, _port("HLS_PORT", 8888), scheme),
@@ -1069,6 +1181,11 @@ def patch_settings(request: Request, body: SettingsPatch) -> dict:
             set_setting(conn, "webrtc_additional_host", data["webrtc_additional_host"].strip())
         if "hdhr_emulation" in data and data["hdhr_emulation"] is not None:
             set_setting(conn, "hdhr_emulation", "1" if data["hdhr_emulation"] else "0")
+        if "playlist_group" in data and data["playlist_group"] is not None:
+            group = data["playlist_group"].strip().lower()
+            if group not in {"tag", "language", "country", "source"}:
+                raise HTTPException(400, "playlist_group must be tag, language, country, or source")
+            set_setting(conn, "playlist_group", group)
         if "emulated_friendly_name" in data and data["emulated_friendly_name"] is not None:
             name = data["emulated_friendly_name"].strip()
             if not name:

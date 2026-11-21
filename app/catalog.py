@@ -144,6 +144,10 @@ def upsert_parsed_channel(
         adult_value = adult
         adult_source = "detected"
     number = guide_number or existing["guide_number"]
+    if existing["title_source"] == "manual":
+        title = existing["title"]
+    else:
+        title = channel.title
     if existing["guide_source"] == "manual":
         tvg_id = existing["tvg_id"]
         guide_source = "manual"
@@ -162,7 +166,7 @@ def upsert_parsed_channel(
     conn.execute(
         """
         UPDATE channels SET
-            title = ?, tvg_id = ?, tvg_name = ?, logo_url = ?, group_title = ?,
+            title = ?, title_source = ?, tvg_id = ?, tvg_name = ?, logo_url = ?, group_title = ?,
             guide_number = ?, guide_sort = ?,
             language = ?, language_source = ?, language_step = ?,
             country = ?, country_source = ?, country_step = ?,
@@ -174,7 +178,8 @@ def upsert_parsed_channel(
         WHERE id = ?
         """,
         (
-            channel.title,
+            title,
+            existing["title_source"],
             tvg_id,
             channel.tvg_name,
             logo_url,
@@ -367,6 +372,7 @@ def channel_json(row: sqlite3.Row, tags: list[dict]) -> dict[str, Any]:
         "id": row["id"],
         "url": row["url"],
         "title": row["title"],
+        "title_source": row["title_source"],
         "tvg_id": row["tvg_id"],
         "tvg_name": row["tvg_name"],
         "logo_url": row["logo_url"],
@@ -517,6 +523,12 @@ def set_manual_fields(
     if "adult" in fields:
         assignments += ["adult = ?", "adult_source = 'manual'"]
         params.append(1 if fields["adult"] else 0)
+    if "title" in fields:
+        title = (fields["title"] or "").strip()
+        if not title:
+            raise ValueError("channel name is empty")
+        assignments += ["title = ?", "title_source = 'manual'"]
+        params.append(title)
     if "logo_url" in fields:
         assignments += ["logo_url = ?", "logo_source = 'manual'"]
         params.append((fields["logo_url"] or "").strip() or None)
