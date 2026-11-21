@@ -739,6 +739,31 @@ function openSettings() {
   document.getElementById("set-sort").value = view.sort;
   document.getElementById("set-adult").checked = showAdult();
   document.getElementById("settings").hidden = false;
+  loadServerSettings().catch((err) => toast(err.message));
+}
+
+async function loadServerSettings() {
+  const response = await fetch("/api/settings");
+  if (!response.ok) throw new Error(`settings returned ${response.status}`);
+  const body = await response.json();
+  document.getElementById("set-http-base").value = body.public_http_base || "";
+  document.getElementById("set-http-base").placeholder = body.effective_http_base || "Detected from the browser";
+  document.getElementById("set-webrtc-base").value = body.public_webrtc_base || "";
+  document.getElementById("set-webrtc-base").placeholder = body.effective_webrtc_base || "Detected from the browser";
+  document.getElementById("set-hls-base").value = body.public_hls_base || "";
+  document.getElementById("set-hls-base").placeholder = body.effective_hls_base || "Detected from the browser";
+  document.getElementById("set-webrtc-host").value = body.webrtc_additional_host || "";
+  document.getElementById("set-webrtc-host").placeholder = body.effective_webrtc_host || "Detected LAN address";
+  document.getElementById("set-verify-concurrency").value = body.verify_concurrency;
+  document.getElementById("set-verify-timeout").value = body.verify_timeout_seconds;
+  document.getElementById("set-verify-interval").value = body.verify_interval_minutes;
+  document.getElementById("set-idle").value = body.idle_timeout_seconds;
+  document.getElementById("set-emulation").checked = body.hdhr_emulation;
+  document.getElementById("port-http").value = body.ports.http;
+  document.getElementById("port-webrtc").value = body.ports.webrtc;
+  document.getElementById("port-webrtc-udp").value = body.ports.webrtc_udp;
+  document.getElementById("port-hls").value = body.ports.hls;
+  document.getElementById("port-note").textContent = body.ports_note;
 }
 
 function saveSettings(event) {
@@ -756,10 +781,43 @@ function saveSettings(event) {
   };
   localStorage.setItem(VIEW_KEY, JSON.stringify(view));
   sessionStorage.setItem(ADULT_KEY, document.getElementById("set-adult").checked ? "1" : "0");
-  document.getElementById("settings").hidden = true;
-  chip = view.country || view.languages.length || view.tags.length ? "saved" : "all";
-  catalog = [];
-  loadGuide().catch((err) => toast(err.message));
+  saveServerSettings()
+    .then(() => {
+      document.getElementById("settings").hidden = true;
+      chip = view.country || view.languages.length || view.tags.length ? "saved" : "all";
+      catalog = [];
+      loadGuide().catch((err) => toast(err.message));
+    })
+    .catch((err) => toast(err.message));
+}
+
+async function saveServerSettings() {
+  const payload = {
+    public_http_base: document.getElementById("set-http-base").value.trim(),
+    public_webrtc_base: document.getElementById("set-webrtc-base").value.trim(),
+    public_hls_base: document.getElementById("set-hls-base").value.trim(),
+    webrtc_additional_host: document.getElementById("set-webrtc-host").value.trim(),
+    verify_concurrency: Number(document.getElementById("set-verify-concurrency").value),
+    verify_timeout_seconds: Number(document.getElementById("set-verify-timeout").value),
+    verify_interval_minutes: Number(document.getElementById("set-verify-interval").value),
+    idle_timeout_seconds: Number(document.getElementById("set-idle").value),
+    hdhr_emulation: document.getElementById("set-emulation").checked,
+  };
+  const response = await fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let detail = `settings returned ${response.status}`;
+    try {
+      const body = await response.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+    }
+    throw new Error(detail);
+  }
 }
 
 function setAdult(on) {

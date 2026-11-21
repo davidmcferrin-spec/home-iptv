@@ -180,6 +180,12 @@ def _seed_settings(conn: sqlite3.Connection) -> None:
         "emulated_friendly_name": "Home IPTV",
         "idle_timeout_seconds": "",
         "verify_interval_minutes": "",
+        "verify_concurrency": "",
+        "verify_timeout_seconds": "",
+        "public_http_base": "",
+        "public_webrtc_base": "",
+        "public_hls_base": "",
+        "webrtc_additional_host": "",
         "device_id": "",
     }
     for key, value in defaults.items():

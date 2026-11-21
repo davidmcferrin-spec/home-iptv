@@ -14,6 +14,7 @@ from app.db import init_db
 from app.emulation import router as emulation_router
 from app.emulation import start_discovery
 from app.hub import Hub, MediaMTXClient, MediaMTXError
+from app.mediamtx_config import write_config
 from app.worker import worker_loop
 
 log = logging.getLogger(__name__)
@@ -28,6 +29,10 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         ensure_dirs(cfg)
         init_db(cfg.database_path)
+        try:
+            write_config()
+        except OSError as exc:
+            log.warning("MediaMTX config was not written: %s", exc)
         stop = threading.Event()
         threads: list[threading.Thread] = []
         if cfg.embed_worker:

@@ -1,4 +1,5 @@
 import logging
+import os
 import sqlite3
 from urllib.parse import urlparse
 
@@ -25,7 +26,7 @@ from app.hdhomerun import (
     scan_lan,
 )
 from app.hub import MediaMTXError, StreamOffline, StreamStartError, TunersBusy
-from app.public_url import is_loopback, request_hostname, rewrite_playback
+from app.public_url import is_loopback, playback_base, request_hostname, rewrite_playback
 from app.importer import (
     PlaylistFetchError,
     fetch_playlist_text,
@@ -92,6 +93,12 @@ class SettingsPatch(BaseModel):
     emulated_friendly_name: str | None = None
     idle_timeout_seconds: int | None = None
     verify_interval_minutes: int | None = None
+    verify_concurrency: int | None = None
+    verify_timeout_seconds: int | None = None
+    public_http_base: str | None = None
+    public_webrtc_base: str | None = None
+    public_hls_base: str | None = None
+    webrtc_additional_host: str | None = None
 
 
 class EpgURL(BaseModel):
@@ -283,9 +290,25 @@ def _channel_and_device(request: Request, channel_id: int, include_adult: bool) 
         conn.close()
 
 
+def _stored(conn, key: str) -> str:
+    return (setting(conn, key) or "").strip()
+
+
+def _playback_config(request: Request) -> tuple[str, str, str]:
+    cfg = request.app.state.cfg
+    conn = _db(request)
+    try:
+        webrtc = _stored(conn, "public_webrtc_base") or cfg.public_webrtc_base
+        hls = _stored(conn, "public_hls_base") or cfg.public_hls_base
+        extra = _stored(conn, "webrtc_additional_host") or (cfg.webrtc_additional_host or "")
+    finally:
+        conn.close()
+    return webrtc, hls, extra
+
+
 def _advertise_for_request(request: Request) -> None:
     hostname = request_hostname(request.headers.get("host"))
-    configured = (request.app.state.cfg.webrtc_additional_host or "").strip()
+    _webrtc, _hls, configured = _playback_config(request)
     host = configured if configured and not is_loopback(configured) else hostname
     if is_loopback(host):
         return
@@ -307,13 +330,13 @@ def watch_channel(request: Request, channel_id: int, include_adult: bool = False
         raise HTTPException(409, str(exc)) from exc
     except StreamStartError as exc:
         raise HTTPException(502, str(exc)) from exc
-    cfg = request.app.state.cfg
+    webrtc, hls, _extra = _playback_config(request)
     scheme = request.url.scheme or "http"
     return rewrite_playback(
         info,
         request_hostname(request.headers.get("host")),
-        cfg.public_webrtc_base,
-        cfg.public_hls_base,
+        webrtc,
+        hls,
         scheme,
     )
 
@@ -852,19 +875,58 @@ def delete_device(request: Request, device_id: int) -> None:
         conn.close()
 
 
+def _optional_int(conn, key: str, fallback: int, minimum: int) -> int:
+    raw = _stored(conn, key)
+    if not raw:
+        return fallback
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        return fallback
+
+
+def _port(name: str, fallback: int) -> int:
+    raw = os.environ.get(name, "")
+    try:
+        return int(raw) if raw else fallback
+    except ValueError:
+        return fallback
+
+
 @router.get("/api/settings")
 def get_settings(request: Request) -> dict:
     cfg = request.app.state.cfg
     conn = _db(request)
     try:
-        idle = setting(conn, "idle_timeout_seconds") or ""
-        interval = setting(conn, "verify_interval_minutes") or ""
+        hostname = request_hostname(request.headers.get("host"))
+        http_base = _stored(conn, "public_http_base") or cfg.public_http_base
+        webrtc_base = _stored(conn, "public_webrtc_base") or cfg.public_webrtc_base
+        hls_base = _stored(conn, "public_hls_base") or cfg.public_hls_base
+        extra = _stored(conn, "webrtc_additional_host") or (cfg.webrtc_additional_host or "")
+        scheme = request.url.scheme or "http"
         return {
             "hdhr_emulation": setting(conn, "hdhr_emulation") == "1",
             "emulated_tuner_count": int(setting(conn, "emulated_tuner_count") or "4"),
             "emulated_friendly_name": setting(conn, "emulated_friendly_name") or "Home IPTV",
-            "idle_timeout_seconds": int(idle) if idle else cfg.idle_timeout_seconds,
-            "verify_interval_minutes": int(interval) if interval else cfg.verify_interval_minutes,
+            "idle_timeout_seconds": _optional_int(conn, "idle_timeout_seconds", cfg.idle_timeout_seconds, 5),
+            "verify_interval_minutes": _optional_int(conn, "verify_interval_minutes", cfg.verify_interval_minutes, 5),
+            "verify_concurrency": _optional_int(conn, "verify_concurrency", cfg.verify_concurrency, 1),
+            "verify_timeout_seconds": _optional_int(conn, "verify_timeout_seconds", cfg.verify_timeout_seconds, 3),
+            "public_http_base": _stored(conn, "public_http_base"),
+            "public_webrtc_base": _stored(conn, "public_webrtc_base"),
+            "public_hls_base": _stored(conn, "public_hls_base"),
+            "webrtc_additional_host": _stored(conn, "webrtc_additional_host"),
+            "effective_http_base": playback_base(http_base, hostname, _port("WEB_PORT", 9595), scheme),
+            "effective_webrtc_base": playback_base(webrtc_base, hostname, _port("WEBRTC_PORT", 8889), scheme),
+            "effective_hls_base": playback_base(hls_base, hostname, _port("HLS_PORT", 8888), scheme),
+            "effective_webrtc_host": extra if extra and not is_loopback(extra) else ("" if is_loopback(hostname) else hostname),
+            "ports": {
+                "http": _port("WEB_PORT", 9595),
+                "webrtc": _port("WEBRTC_PORT", 8889),
+                "webrtc_udp": _port("WEBRTC_UDP_PORT", 8189),
+                "hls": _port("HLS_PORT", 8888),
+            },
+            "ports_note": "Host ports are set in Compose or the Unraid template.",
         }
     finally:
         conn.close()
@@ -887,6 +949,25 @@ def patch_settings(request: Request, body: SettingsPatch) -> dict:
             if data["verify_interval_minutes"] is None or data["verify_interval_minutes"] < 5:
                 raise HTTPException(400, "verify_interval_minutes must be at least 5")
             set_setting(conn, "verify_interval_minutes", str(data["verify_interval_minutes"]))
+        if "verify_concurrency" in data:
+            if data["verify_concurrency"] is None or data["verify_concurrency"] < 1:
+                raise HTTPException(400, "verify_concurrency must be at least 1")
+            set_setting(conn, "verify_concurrency", str(data["verify_concurrency"]))
+        if "verify_timeout_seconds" in data:
+            if data["verify_timeout_seconds"] is None or data["verify_timeout_seconds"] < 3:
+                raise HTTPException(400, "verify_timeout_seconds must be at least 3")
+            set_setting(conn, "verify_timeout_seconds", str(data["verify_timeout_seconds"]))
+        for key in ("public_http_base", "public_webrtc_base", "public_hls_base"):
+            if key not in data or data[key] is None:
+                continue
+            value = data[key].strip()
+            if value:
+                parsed = urlparse(value)
+                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                    raise HTTPException(400, f"{key} must be an http or https URL")
+            set_setting(conn, key, value)
+        if "webrtc_additional_host" in data and data["webrtc_additional_host"] is not None:
+            set_setting(conn, "webrtc_additional_host", data["webrtc_additional_host"].strip())
         if "hdhr_emulation" in data and data["hdhr_emulation"] is not None:
             set_setting(conn, "hdhr_emulation", "1" if data["hdhr_emulation"] else "0")
         if "emulated_friendly_name" in data and data["emulated_friendly_name"] is not None:

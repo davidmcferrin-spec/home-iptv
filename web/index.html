@@ -133,6 +133,48 @@
       <label>Starting channel
         <select id="set-start"></select>
       </label>
+      <h2>Server</h2>
+      <label>Public HTTP base
+        <input id="set-http-base" type="url" placeholder="Detected from the browser" autocomplete="off">
+      </label>
+      <label>Public WebRTC base
+        <input id="set-webrtc-base" type="url" placeholder="Detected from the browser" autocomplete="off">
+      </label>
+      <label>Public HLS base
+        <input id="set-hls-base" type="url" placeholder="Detected from the browser" autocomplete="off">
+      </label>
+      <label>WebRTC host
+        <input id="set-webrtc-host" type="text" placeholder="Detected LAN address" autocomplete="off">
+      </label>
+      <label>Verify concurrency
+        <input id="set-verify-concurrency" type="number" min="1" inputmode="numeric" value="4">
+      </label>
+      <label>Verify timeout (seconds)
+        <input id="set-verify-timeout" type="number" min="3" inputmode="numeric" value="20">
+      </label>
+      <label>Verify interval (minutes)
+        <input id="set-verify-interval" type="number" min="5" inputmode="numeric" value="360">
+      </label>
+      <label>Idle timeout (seconds)
+        <input id="set-idle" type="number" min="5" inputmode="numeric" value="60">
+      </label>
+      <label class="check">
+        <input id="set-emulation" type="checkbox">
+        HDHomeRun emulation
+      </label>
+      <p id="port-note"></p>
+      <label>Guide port
+        <input id="port-http" type="text" readonly>
+      </label>
+      <label>WebRTC port
+        <input id="port-webrtc" type="text" readonly>
+      </label>
+      <label>WebRTC UDP port
+        <input id="port-webrtc-udp" type="text" readonly>
+      </label>
+      <label>HLS port
+        <input id="port-hls" type="text" readonly>
+      </label>
       <label class="check">
         <input id="set-adult" type="checkbox">
         Show adult content for this browser session

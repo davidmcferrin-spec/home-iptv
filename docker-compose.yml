@@ -1,9 +1,22 @@
 services:
+  prepare:
+    image: ghcr.io/davidmcferrin-spec/home-iptv:latest
+    command: ["python", "-m", "app.mediamtx_config"]
+    environment:
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
+    volumes:
+      - ${CONFIG_PATH:-/mnt/user/appdata/home-iptv/config}:/config
+    restart: "no"
+
   mediamtx:
     image: bluenviron/mediamtx:1.16.2
-    command: ["/mediamtx.yml"]
+    command: ["/mediamtx-config/mediamtx.yml"]
     volumes:
-      - ./mediamtx.yml:/mediamtx.yml:ro
+      - ${CONFIG_PATH:-/mnt/user/appdata/home-iptv/config}:/mediamtx-config:ro
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
     ports:
       - "${HLS_PORT:-8888}:8888"
       - "${WEBRTC_PORT:-8889}:8889"
@@ -32,14 +45,13 @@ services:
       DATA_DIR: /data
       MEDIAMTX_API: http://mediamtx:9997
       MEDIAMTX_RTSP: rtsp://mediamtx:8554
-      PUBLIC_HTTP_BASE: ${PUBLIC_HTTP_BASE:-http://127.0.0.1:9595}
-      PUBLIC_WEBRTC_BASE: ${PUBLIC_WEBRTC_BASE:-http://127.0.0.1:8889}
-      PUBLIC_HLS_BASE: ${PUBLIC_HLS_BASE:-http://127.0.0.1:8888}
-      WEBRTC_ADDITIONAL_HOST: ${WEBRTC_ADDITIONAL_HOST:-}
-      IDLE_TIMEOUT_SECONDS: ${IDLE_TIMEOUT_SECONDS:-60}
+      WEB_PORT: ${WEB_PORT:-9595}
+      WEBRTC_PORT: ${WEBRTC_PORT:-8889}
+      WEBRTC_UDP_PORT: ${WEBRTC_UDP_PORT:-8189}
+      HLS_PORT: ${HLS_PORT:-8888}
     volumes:
-      - ${CONFIG_PATH:-./config}:/config
-      - ${DATA_PATH:-./data}:/data
+      - ${CONFIG_PATH:-/mnt/user/appdata/home-iptv/config}:/config
+      - ${DATA_PATH:-/mnt/user/appdata/home-iptv/data}:/data
     depends_on:
       mediamtx:
         condition: service_healthy
@@ -62,12 +74,9 @@ services:
       EMBED_DISCOVERY: "0"
       DATABASE_PATH: /config/home-iptv.sqlite
       DATA_DIR: /data
-      VERIFY_CONCURRENCY: ${VERIFY_CONCURRENCY:-4}
-      VERIFY_TIMEOUT_SECONDS: ${VERIFY_TIMEOUT_SECONDS:-20}
-      VERIFY_INTERVAL_MINUTES: ${VERIFY_INTERVAL_MINUTES:-360}
     volumes:
-      - ${CONFIG_PATH:-./config}:/config
-      - ${DATA_PATH:-./data}:/data
+      - ${CONFIG_PATH:-/mnt/user/appdata/home-iptv/config}:/config
+      - ${DATA_PATH:-/mnt/user/appdata/home-iptv/data}:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import pathlib; raise SystemExit(0 if b'app.worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
       interval: 10s

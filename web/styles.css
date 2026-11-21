@@ -580,11 +580,12 @@ button:focus-visible,
   margin: 12px 0;
 }
 
-#settings-form select, #settings-form input[type="checkbox"] {
+#settings-form select, #settings-form input[type="checkbox"],
+#settings-form input[type="url"], #settings-form input[type="text"], #settings-form input[type="number"] {
   margin-top: 6px;
 }
 
-#settings-form select {
+#settings-form select, #settings-form input[type="url"], #settings-form input[type="text"], #settings-form input[type="number"] {
   width: 100%;
   min-height: 44px;
   background: #12141c;
