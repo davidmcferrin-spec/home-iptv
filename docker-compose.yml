@@ -54,6 +54,7 @@ services:
     volumes:
       - ${CONFIG_PATH:-/mnt/user/appdata/home-iptv/config}:/config
       - ${DATA_PATH:-/mnt/user/appdata/home-iptv/data}:/data
+      - ${MEDIA_PATH:-/mnt/user/media}:/media:ro
     depends_on:
       mediamtx:
         condition: service_started

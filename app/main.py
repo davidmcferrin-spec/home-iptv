@@ -15,6 +15,7 @@ from app.db import init_db
 from app.emulation import router as emulation_router
 from app.emulation import start_discovery
 from app.hub import Hub, MediaMTXClient, MediaMTXError
+from app.media_api import router as media_router
 from app.icons import apple_touch_png, favicon_ico, favicon_svg
 from app.mediamtx_config import write_config
 from app.worker import worker_loop
@@ -86,7 +87,15 @@ def create_app() -> FastAPI:
     app.state.cfg = cfg
     app.state.hub = hub
     app.include_router(router)
+    app.include_router(media_router)
     app.include_router(emulation_router)
+
+    @app.get("/library")
+    def library_page():
+        page = WEB_DIR / "library.html"
+        if not page.is_file():
+            raise HTTPException(404, "library page is not installed")
+        return FileResponse(page)
 
     @app.get("/channels")
     def channels_page():
