@@ -102,7 +102,7 @@ def test_transcode_plan_copies_webrtc_codecs_and_converts_the_rest():
     assert "nobuffer" not in smooth[smooth.index("-fflags") + 1]
     assert "-map" in smooth
     assert "0:v:0" in smooth
-    assert "-use_wallclock_as_timestamps" in smooth
+    assert "-use_wallclock_as_timestamps" not in smooth
     low = ffmpeg_command("http://example.test/a.ts", "rtsp://mediamtx:8554/ch1", "audio", smooth=False)
     assert "nobuffer" in low[low.index("-fflags") + 1]
     assert "-use_wallclock_as_timestamps" not in low
