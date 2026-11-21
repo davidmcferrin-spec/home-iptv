@@ -577,10 +577,39 @@ function move(deltaRow, deltaCol) {
   scrollFocusIntoView();
 }
 
+function scrollGuidePage(direction) {
+  const desktop = document.getElementById("guide-scroll");
+  const usePhone = getComputedStyle(desktop).display === "none";
+  const box = usePhone ? document.getElementById("phone-list") : desktop;
+  const amount = Math.max(80, box.clientHeight - 44);
+  box.scrollTop = Math.max(0, box.scrollTop + direction * amount);
+  const rows = box.querySelectorAll(usePhone ? ".phone-row" : ".channel-cell");
+  const limit = box.getBoundingClientRect().top + (usePhone ? 8 : 48);
+  let index = 0;
+  rows.forEach((row, i) => {
+    if (row.getBoundingClientRect().top <= limit) index = i;
+  });
+  focus.row = Math.min(index, Math.max(channels.length - 1, 0));
+  if (usePhone) return;
+  focus.col = 0;
+  renderGuide();
+  renderInfo();
+}
+
 function scrollFocusIntoView() {
   const scroller = document.getElementById("guide-scroll");
+  if (!scroller || getComputedStyle(scroller).display === "none") {
+    const list = document.getElementById("phone-list");
+    const row = list && list.children[focus.row];
+    if (!list || !row || getComputedStyle(list).display === "none") return;
+    const rowRect = row.getBoundingClientRect();
+    const box = list.getBoundingClientRect();
+    if (rowRect.top < box.top) list.scrollTop -= box.top - rowRect.top;
+    else if (rowRect.bottom > box.bottom) list.scrollTop += rowRect.bottom - box.bottom;
+    return;
+  }
   const node = document.querySelector(".program.focused");
-  if (!scroller || !node || getComputedStyle(scroller).display === "none") return;
+  if (!node) return;
   const header = scroller.querySelector(".slot-head");
   const headerHeight = header ? header.getBoundingClientRect().height : 0;
   const nodeRect = node.getBoundingClientRect();
@@ -1707,10 +1736,12 @@ document.addEventListener("keydown", (event) => {
     if (channel) tune(channel);
   } else if (event.key === "PageUp") {
     event.preventDefault();
-    tuneRelative(-1);
+    if (document.documentElement.classList.contains("video-full")) tuneRelative(-1);
+    else scrollGuidePage(-1);
   } else if (event.key === "PageDown") {
     event.preventDefault();
-    tuneRelative(1);
+    if (document.documentElement.classList.contains("video-full")) tuneRelative(1);
+    else scrollGuidePage(1);
   } else if (event.key === "f" || event.key === "F") {
     event.preventDefault();
     toggleFullscreen();

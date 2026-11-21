@@ -328,3 +328,111 @@ def test_default_view_is_saved_in_the_browser(browser, guide_url):
         assert page.evaluate("sessionStorage.getItem('home-iptv-adult')") in (None, "0")
     finally:
         context.close()
+
+
+def _upload_many(base: str, count: int = 320) -> None:
+    lines = ["#EXTM3U"]
+    for index in range(1, count + 1):
+        lines.append(f"#EXTINF:-1,Scroll Channel {index:03d}")
+        lines.append(f"http://example.test/scroll-{index}.ts")
+    uploaded = httpx.post(
+        f"{base}/api/playlists/upload",
+        data={"name": "Scroll"},
+        files={"file": ("scroll.m3u", "\n".join(lines).encode(), "audio/mpegurl")},
+        timeout=30,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+
+
+def _guide_metrics(page):
+    return page.evaluate(
+        """() => {
+          const scroller = document.getElementById('guide-scroll');
+          const info = document.getElementById('info').getBoundingClientRect();
+          const hint = document.getElementById('hint').getBoundingClientRect();
+          const head = scroller.querySelector('.slot-head');
+          const headTop = head ? head.getBoundingClientRect().top : 0;
+          const box = scroller.getBoundingClientRect();
+          return {
+            scrollTop: scroller.scrollTop,
+            client: scroller.clientHeight,
+            scroll: scroller.scrollHeight,
+            infoTop: Math.round(info.top),
+            hintTop: Math.round(hint.top),
+            headStuck: head ? Math.abs(headTop - box.top) < 2 : false,
+            pageScroll: document.scrollingElement.scrollTop,
+          };
+        }"""
+    )
+
+
+def test_guide_rows_scroll_inside_the_guide_box(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    _upload_many(guide_url)
+    for name, width, height in (("1280x800", 1280, 800), ("1920x1080", 1920, 1080), ("1366x768", 1366, 768)):
+        context, page = _open(browser, guide_url, width, height)
+        try:
+            page.locator("#guide-scroll").wait_for()
+            page.locator(".channel-name", has_text="Scroll Channel 001").wait_for()
+            before = _guide_metrics(page)
+            assert before["client"] > 120, before
+            assert before["scroll"] > before["client"] + 200, before
+            assert before["pageScroll"] == 0
+            page.screenshot(path=str(artifacts / f"guide-scroll-top-{name}.png"))
+            page.keyboard.press("PageDown")
+            page.wait_for_function("document.getElementById('guide-scroll').scrollTop > 40")
+            box = page.locator("#guide-scroll").bounding_box()
+            page.mouse.move(box["x"] + 120, box["y"] + box["height"] / 2)
+            page.mouse.wheel(0, 900)
+            page.wait_for_function(
+                "(start) => document.getElementById('guide-scroll').scrollTop > start + 100",
+                arg=before["scrollTop"],
+            )
+            for _ in range(12):
+                page.keyboard.press("ArrowDown")
+            arrow = _guide_metrics(page)
+            assert arrow["scrollTop"] > before["scrollTop"]
+            assert arrow["infoTop"] == before["infoTop"]
+            assert abs(arrow["hintTop"] - before["hintTop"]) <= 1
+            assert arrow["headStuck"]
+            page.locator("#stats-toggle").click()
+            page.locator("#stats").wait_for()
+            page.mouse.move(box["x"] + 120, box["y"] + box["height"] / 2)
+            page.mouse.wheel(0, 700)
+            page.wait_for_function(
+                "(start) => document.getElementById('guide-scroll').scrollTop > start + 40",
+                arg=arrow["scrollTop"],
+            )
+            thumb_x = box["x"] + box["width"] - 6
+            page.mouse.move(thumb_x, box["y"] + 30)
+            page.mouse.down()
+            page.mouse.move(thumb_x, box["y"] + box["height"] - 24, steps=8)
+            page.mouse.up()
+            dragged = _guide_metrics(page)
+            assert dragged["scrollTop"] > arrow["scrollTop"]
+            page.evaluate("document.getElementById('guide-scroll').scrollTop = document.getElementById('guide-scroll').scrollHeight")
+            page.wait_for_timeout(100)
+            bottom = _guide_metrics(page)
+            assert bottom["infoTop"] == before["infoTop"]
+            assert bottom["pageScroll"] == 0
+            page.screenshot(path=str(artifacts / f"guide-scroll-bottom-{name}.png"))
+        finally:
+            context.close()
+    context, page = _open(browser, guide_url, 390, 844)
+    try:
+        page.locator(".phone-row").first.wait_for()
+        phone = page.evaluate(
+            """() => {
+              const list = document.getElementById('phone-list');
+              return {client: list.clientHeight, scroll: list.scrollHeight};
+            }"""
+        )
+        assert phone["scroll"] > phone["client"] + 100, phone
+        box = page.locator("#phone-list").bounding_box()
+        page.mouse.move(box["x"] + 40, box["y"] + 40)
+        page.mouse.wheel(0, 700)
+        page.wait_for_function("document.getElementById('phone-list').scrollTop > 40")
+        page.screenshot(path=str(artifacts / "guide-scroll-phone.png"))
+    finally:
+        context.close()
