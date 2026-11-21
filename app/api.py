@@ -393,6 +393,22 @@ class VerifyMany(BaseModel):
     ids: list[int] | None = None
 
 
+@router.post("/api/playlists/{playlist_id}/verify", status_code=202)
+def verify_playlist(request: Request, playlist_id: int) -> dict:
+    conn = _db(request)
+    try:
+        playlist = conn.execute("SELECT id FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if playlist is None:
+            raise HTTPException(404, "playlist not found")
+        rows = conn.execute("SELECT id FROM channels WHERE playlist_id = ?", (playlist_id,)).fetchall()
+        for row in rows:
+            enqueue(conn, row["id"])
+        conn.commit()
+        return {"queued": len(rows)}
+    finally:
+        conn.close()
+
+
 @router.post("/api/channels/verify", status_code=202)
 def verify_many(request: Request, body: VerifyMany | None = None) -> dict:
     conn = _db(request)

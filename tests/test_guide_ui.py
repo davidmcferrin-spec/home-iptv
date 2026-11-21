@@ -194,6 +194,7 @@ def test_guide_screenshots_and_layouts(browser, guide_url):
             else:
                 assert page.locator("#guide-scroll").is_visible()
                 assert page.locator("#info-title").is_visible()
+                page.locator(".facts").get_by_text("Unchecked").wait_for()
             assert page.locator(".chip").first.bounding_box()["height"] >= 44
             assert page.get_by_text("Midnight XXX").count() == 0
             page.screenshot(path=str(artifacts / f"guide-{name}.png"))

@@ -362,6 +362,15 @@ button:focus-visible,
   white-space: nowrap;
 }
 
+.channel-status, .facts {
+  flex: none;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.channel-status.online, .facts.online { color: #8dcea0; }
+.channel-status.offline, .facts.offline { color: #e7a0a0; }
+
 .icon-button {
   min-width: 44px;
   min-height: 44px;

@@ -161,6 +161,9 @@ function activeFilters() {
   if (chip.startsWith("country:")) {
     return { country: chip.slice(8), languages: [], tags: [], sort: view.sort, order: view.order };
   }
+  if (chip.startsWith("status:")) {
+    return { country: "", languages: [], tags: [], status: chip.slice(7), sort: view.sort, order: view.order };
+  }
   return { country: "", languages: [], tags: [], sort: view.sort, order: view.order };
 }
 
@@ -168,6 +171,7 @@ async function loadGuide() {
   const filters = activeFilters();
   const params = { sort: filters.sort, order: filters.order };
   if (filters.country) params.country = filters.country;
+  if (filters.status) params.status = filters.status;
   const list = await fetchChannels(params);
   let next = list.filter((channel) => {
     if (filters.languages.length && !filters.languages.includes(channel.language)) return false;
@@ -275,7 +279,13 @@ function renderChips() {
   const view = loadView();
   const items = [{ id: "all", label: "All channels" }];
   if (view.country || view.languages.length || view.tags.length) items.push({ id: "saved", label: "My view" });
-  items.push({ id: "favorites", label: "Favorites" }, { id: "popular", label: "Most Popular" });
+  items.push(
+    { id: "favorites", label: "Favorites" },
+    { id: "popular", label: "Most Popular" },
+    { id: "status:online", label: "Online" },
+    { id: "status:offline", label: "Offline" },
+    { id: "status:unknown", label: "Unchecked" },
+  );
   const tags = new Set();
   const languages = new Set();
   const countries = new Set();
@@ -317,10 +327,32 @@ function renderInfo() {
     badge.textContent = "HD";
     meta.appendChild(badge);
   }
+  if (channel) {
+    const facts = document.createElement("span");
+    facts.className = `facts ${channel.status || "unknown"}`;
+    facts.textContent = channelFacts(channel);
+    meta.appendChild(facts);
+  }
   if (program) {
     meta.appendChild(document.createTextNode(`${formatWhen(Date.parse(program.start_at))} – ${formatWhen(Date.parse(program.stop_at))}`));
   }
   document.getElementById("info-desc").textContent = program?.description || "";
+}
+
+function statusLabel(channel) {
+  if (channel.status === "online") return "Online";
+  if (channel.status === "offline") return "Offline";
+  return "Unchecked";
+}
+
+function channelFacts(channel) {
+  const bits = [statusLabel(channel)];
+  if (channel.width && channel.height) bits.push(`${channel.width}x${channel.height}`);
+  if (channel.video_codec) bits.push(channel.video_codec);
+  if (channel.audio_codec) bits.push(channel.audio_codec);
+  bits.push(channel.last_checked_at ? `checked ${channel.last_checked_at.replace("T", " ").replace("Z", " UTC")}` : "not checked");
+  if (channel.guide_source) bits.push(channel.guide_source);
+  return bits.join(" · ");
 }
 
 function renderGuide() {
@@ -355,6 +387,7 @@ function renderGuide() {
     tuneButton.appendChild(Object.assign(document.createElement("span"), { className: "channel-num", textContent: channel.guide_number }));
     tuneButton.appendChild(logoNode(channel));
     tuneButton.appendChild(Object.assign(document.createElement("span"), { className: "channel-name", textContent: channel.title }));
+    tuneButton.appendChild(Object.assign(document.createElement("span"), { className: `channel-status ${channel.status || "unknown"}`, textContent: statusLabel(channel) }));
     tuneButton.addEventListener("click", () => tune(channel));
     cell.appendChild(tuneButton);
     const heart = document.createElement("button");
@@ -427,7 +460,7 @@ function renderPhone() {
     row.innerHTML = `<span class="channel-num"></span><span class="text"><span class="name"></span><span class="now"></span><span class="next"></span></span>`;
     row.querySelector(".channel-num").textContent = channel.guide_number;
     row.querySelector(".name").textContent = channel.title;
-    row.querySelector(".now").textContent = `Now  ${now ? now.title : channel.title}`;
+    row.querySelector(".now").textContent = `${statusLabel(channel)}  ${now ? now.title : channel.title}`;
     row.querySelector(".next").textContent = `Next  ${next ? next.title : "No schedule"}`;
     row.prepend(logoNode(channel));
     row.addEventListener("click", () => tune(channel));
@@ -1025,14 +1058,11 @@ async function addTuner() {
 }
 
 function progressText(playlist) {
-  if (playlist.status === "checking") {
-    const done = playlist.channel_count - playlist.pending;
-    return `Checking ${done} of ${playlist.channel_count}`;
-  }
+  const checked = Math.max(0, (playlist.channel_count || 0) - (playlist.pending || 0));
+  const counts = `${checked} checked, ${playlist.online || 0} online, ${playlist.offline || 0} offline`;
+  if (playlist.status === "checking") return `Checking ${checked} of ${playlist.channel_count}. ${counts}`;
   if (playlist.status === "empty") return "No channels";
-  if (playlist.status === "online") return "Online";
-  if (playlist.status === "offline") return "Offline";
-  return `${playlist.online} online, ${playlist.offline} offline`;
+  return counts;
 }
 
 function sourceRow(title, meta, actions) {
@@ -1077,6 +1107,7 @@ async function refreshSources() {
       playlist.name,
       `${playlist.channel_count} channels · ${when} · ${progressText(playlist)}`,
       [
+        { label: "Check now", run: () => checkPlaylist(playlist.id) },
         { label: "Re-import", run: () => reimportPlaylist(playlist.id) },
         { label: "Delete", run: () => deletePlaylist(playlist.id) },
       ],
@@ -1094,6 +1125,16 @@ async function refreshSources() {
       ],
     ));
   });
+}
+
+async function checkPlaylist(id) {
+  const response = await fetch(`/api/playlists/${id}/verify`, { method: "POST" });
+  if (!response.ok) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  await refreshSources();
 }
 
 async function reimportPlaylist(id) {

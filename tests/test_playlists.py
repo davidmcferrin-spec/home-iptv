@@ -56,6 +56,21 @@ def test_duplicate_name_and_url(client, monkeypatch):
     assert named.json()["detail"] == "a playlist with this name already exists"
 
 
+def test_check_now_queues_the_playlist(client):
+    uploaded = client.post(
+        "/api/playlists/upload",
+        data={"name": "Room"},
+        files={"file": ("room.m3u", PLAYLIST, "audio/mpegurl")},
+    )
+    playlist_id = uploaded.json()["playlist_id"]
+    listed = client.get("/api/playlists").json()["playlists"][0]
+    assert listed["online"] == 0
+    assert listed["status"] == "checking"
+    queued = client.post(f"/api/playlists/{playlist_id}/verify")
+    assert queued.status_code == 202
+    assert queued.json()["queued"] == 2
+
+
 def test_reimport_and_delete(client):
     uploaded = client.post(
         "/api/playlists/upload",
