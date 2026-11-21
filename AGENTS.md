@@ -23,7 +23,7 @@ Personal LAN app. It imports playlists and HDHomeRun lineups the operator is all
 
 ```sh
 python -m pip install -e ".[dev]"
-DATABASE_PATH=./config/home-iptv.sqlite DATA_DIR=./data python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
+DATABASE_PATH=./config/home-iptv.sqlite DATA_DIR=./data python -m uvicorn app.main:app --host 0.0.0.0 --port 9595
 ```
 
 `EMBED_WORKER=1` (the default) verifies streams in this process. Docker Compose runs `python -m app.worker` beside the API instead.
