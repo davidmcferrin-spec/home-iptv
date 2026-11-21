@@ -391,6 +391,7 @@ def channel_json(row: sqlite3.Row, tags: list[dict]) -> dict[str, Any]:
         "logo_source": row["logo_source"],
         "guide_source": row["guide_source"],
         "guide_match_id": row["guide_match_id"],
+        "programme_source": row["programme_source"],
         "source": {"type": source_type, "id": row["device_id"] or row["playlist_id"]},
     }
 

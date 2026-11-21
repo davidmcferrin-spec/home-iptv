@@ -89,6 +89,14 @@ class DeviceIn(BaseModel):
     host: str
 
 
+class FeedIn(BaseModel):
+    url: str
+
+
+class FeedPatch(BaseModel):
+    enabled: bool
+
+
 class SettingsPatch(BaseModel):
     hdhr_emulation: bool | None = None
     emulated_tuner_count: int | None = None
@@ -690,6 +698,79 @@ def delete_playlist(request: Request, playlist_id: int) -> None:
         if cur.rowcount == 0:
             raise HTTPException(404, "playlist not found")
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _feed_json(row, countries: set[str]) -> dict:
+    from app.epg_feeds import feed_is_active
+
+    return {
+        "id": row["id"],
+        "url": row["url"],
+        "country": row["country"],
+        "enabled": bool(row["enabled"]),
+        "builtin": bool(row["builtin"]),
+        "active": feed_is_active(row, countries),
+        "last_fetched_at": row["last_fetched_at"],
+        "last_status": row["last_status"],
+        "last_matched": row["last_matched"],
+    }
+
+
+@router.get("/api/epg/feeds")
+def list_feeds(request: Request) -> dict:
+    from app.epg_feeds import catalog_countries, ensure_builtin
+
+    conn = _db(request)
+    try:
+        ensure_builtin(conn)
+        conn.commit()
+        countries = catalog_countries(conn)
+        rows = conn.execute("SELECT * FROM epg_feeds ORDER BY country, url").fetchall()
+        return {"feeds": [_feed_json(row, countries) for row in rows]}
+    finally:
+        conn.close()
+
+
+@router.post("/api/epg/feeds", status_code=201)
+def add_feed(request: Request, body: FeedIn) -> dict:
+    parsed = urlparse(body.url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(400, "guide URL must be http or https")
+    conn = _db(request)
+    try:
+        try:
+            conn.execute(
+                "INSERT INTO epg_feeds(url, country, enabled, builtin) VALUES (?, NULL, 1, 0)",
+                (body.url.strip(),),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "guide URL already exists") from exc
+        conn.commit()
+        row = conn.execute("SELECT * FROM epg_feeds WHERE url = ?", (body.url.strip(),)).fetchone()
+        from app.epg_feeds import catalog_countries
+
+        return _feed_json(row, catalog_countries(conn))
+    finally:
+        conn.close()
+
+
+@router.patch("/api/epg/feeds/{feed_id}")
+def patch_feed(request: Request, feed_id: int, body: FeedPatch) -> dict:
+    conn = _db(request)
+    try:
+        cur = conn.execute(
+            "UPDATE epg_feeds SET enabled = ? WHERE id = ?",
+            (1 if body.enabled else 0, feed_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "guide feed not found")
+        conn.commit()
+        row = conn.execute("SELECT * FROM epg_feeds WHERE id = ?", (feed_id,)).fetchone()
+        from app.epg_feeds import catalog_countries
+
+        return _feed_json(row, catalog_countries(conn))
     finally:
         conn.close()
 

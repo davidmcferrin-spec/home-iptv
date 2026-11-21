@@ -352,6 +352,7 @@ function channelFacts(channel) {
   if (channel.audio_codec) bits.push(channel.audio_codec);
   bits.push(channel.last_checked_at ? `checked ${channel.last_checked_at.replace("T", " ").replace("Z", " UTC")}` : "not checked");
   if (channel.guide_source) bits.push(channel.guide_source);
+  if (channel.programme_source) bits.push(channel.programme_source);
   return bits.join(" · ");
 }
 
@@ -795,6 +796,67 @@ async function loadServerSettings() {
   document.getElementById("port-webrtc-udp").value = body.ports.webrtc_udp;
   document.getElementById("port-hls").value = body.ports.hls;
   document.getElementById("port-note").textContent = body.ports_note;
+  await loadFeeds();
+}
+
+async function loadFeeds() {
+  const response = await fetch("/api/epg/feeds");
+  if (!response.ok) throw new Error(`guide feeds returned ${response.status}`);
+  const body = await response.json();
+  const list = document.getElementById("feed-list");
+  list.innerHTML = "";
+  body.feeds.forEach((feed) => {
+    const row = document.createElement("label");
+    row.className = "check feed-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = feed.enabled;
+    input.addEventListener("change", () => {
+      fetch(`/api/epg/feeds/${feed.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: input.checked }),
+      }).then((result) => {
+        if (!result.ok) toast(`guide feed returned ${result.status}`);
+      });
+    });
+    row.appendChild(input);
+    const text = document.createElement("span");
+    text.className = "feed-text";
+    const country = feed.country || "Any country";
+    const title = document.createElement("span");
+    title.textContent = `${country}  ${feed.url}`;
+    const status = document.createElement("span");
+    status.className = "meta";
+    status.textContent = feed.last_status ? `${feed.last_status}, ${feed.last_matched || 0} matched` : "not fetched";
+    text.append(title, status);
+    row.appendChild(text);
+    list.appendChild(row);
+  });
+}
+
+async function addFeed() {
+  const input = document.getElementById("feed-url");
+  const url = input.value.trim();
+  if (!url) return;
+  const response = await fetch("/api/epg/feeds", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!response.ok) {
+    let detail = `guide feed returned ${response.status}`;
+    try {
+      const body = await response.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+    }
+    toast(detail);
+    return;
+  }
+  input.value = "";
+  await loadFeeds();
 }
 
 function saveSettings(event) {
@@ -858,6 +920,15 @@ function setAdult(on) {
 }
 
 document.getElementById("open-settings").addEventListener("click", openSettings);
+document.getElementById("feed-add").addEventListener("click", () => {
+  addFeed().catch((err) => toast(err.message));
+});
+document.getElementById("feed-url").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addFeed().catch((err) => toast(err.message));
+  }
+});
 document.getElementById("open-import").addEventListener("click", openImport);
 document.getElementById("close-import").addEventListener("click", closeImport);
 document.getElementById("choose-file").addEventListener("click", () => {

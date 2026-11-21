@@ -210,8 +210,11 @@ def test_settings_screenshots(browser, guide_url):
         try:
             page.get_by_role("button", name="Settings").click()
             page.locator("#port-note").wait_for()
-            page.locator("#set-idle").scroll_into_view_if_needed()
-            page.screenshot(path=str(artifacts / f"settings-{name}.png"))
+            uk = page.locator("#feed-list").get_by_text("epg_ripper_UK1.xml.gz")
+            uk.wait_for()
+            assert page.locator("#feed-add").bounding_box()["height"] >= 44
+            uk.scroll_into_view_if_needed()
+            page.screenshot(path=str(artifacts / f"feeds-{name}.png"))
         finally:
             context.close()
 

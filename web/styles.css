@@ -610,6 +610,10 @@ button:focus-visible,
 }
 
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.feed-row { align-items: center; }
+.feed-row .feed-text { display: flex; flex-direction: column; min-width: 0; }
+.feed-row .meta { color: var(--dim); font-size: 13px; }
+.feed-row input { width: 44px; height: 44px; flex: none; }
 
 .settings-actions { display: flex; gap: 8px; }
 

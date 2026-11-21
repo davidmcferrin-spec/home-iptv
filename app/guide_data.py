@@ -26,6 +26,14 @@ def normalize_name(value: str | None) -> str:
     return NAME_RE.sub("", (value or "").casefold())
 
 
+def guide_name(value: str | None) -> str:
+    text = normalize_name(value)
+    for suffix in ("fhd", "uhd", "hd", "sd", "4k"):
+        if text.endswith(suffix) and len(text) - len(suffix) >= 3:
+            return text[: -len(suffix)]
+    return text
+
+
 def cache_dir(database_path: str) -> Path:
     path = Path(database_path).parent / "guide-cache"
     path.mkdir(parents=True, exist_ok=True)
@@ -76,6 +84,11 @@ def refresh_guide(database_path: str, fetch=None) -> dict:
         conn.commit()
     finally:
         conn.close()
+    from app.epg_feeds import refresh_programme_feeds
+
+    feed_summary = refresh_programme_feeds(database_path, fetch=getter)
+    summary["programmes"] += feed_summary["programmes"]
+    summary["feeds"] = feed_summary["feeds"]
     log.info(
         "guide match: %s matched, %s missed, %s logos, %s programmes",
         summary["matched"],

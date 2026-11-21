@@ -174,6 +174,13 @@
       <label>HLS port
         <input id="port-hls" type="text" readonly>
       </label>
+      <h2>Guide feeds</h2>
+      <p>A feed runs when its country is in the catalog. An added URL runs for every country. A feed that fails is skipped.</p>
+      <div id="feed-list"></div>
+      <label>Add a guide URL
+        <input id="feed-url" type="url" placeholder="https://" autocomplete="off">
+      </label>
+      <button id="feed-add" type="button">Add feed</button>
       <label class="check">
         <input id="set-adult" type="checkbox">
         Show adult content for this browser session

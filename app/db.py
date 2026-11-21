@@ -172,6 +172,24 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "channels", "logo_source", "TEXT")
         _ensure_column(conn, "channels", "guide_source", "TEXT")
         _ensure_column(conn, "channels", "guide_match_id", "TEXT")
+        _ensure_column(conn, "channels", "programme_source", "TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS epg_feeds (
+                id INTEGER PRIMARY KEY,
+                url TEXT NOT NULL UNIQUE,
+                country TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                builtin INTEGER NOT NULL DEFAULT 0,
+                last_fetched_at TEXT,
+                last_status TEXT,
+                last_matched INTEGER
+            )
+            """
+        )
+        from app.epg_feeds import ensure_builtin
+
+        ensure_builtin(conn)
         conn.commit()
     finally:
         conn.close()
