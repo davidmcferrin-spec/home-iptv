@@ -138,6 +138,14 @@ class MediaMTXClient:
     def __init__(self, api_base: str) -> None:
         self.api_base = api_base.rstrip("/")
 
+    def ready(self) -> None:
+        try:
+            response = httpx.get(f"{self.api_base}/v3/config/global/get", timeout=3)
+        except httpx.HTTPError as exc:
+            raise MediaMTXError(f"MediaMTX API request failed: {exc}") from exc
+        if response.status_code != 200:
+            raise MediaMTXError(f"MediaMTX API returned HTTP {response.status_code}")
+
     def get_path(self, name: str) -> dict | None:
         try:
             response = httpx.get(f"{self.api_base}/v3/paths/get/{name}", timeout=3)

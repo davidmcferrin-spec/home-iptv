@@ -23,6 +23,7 @@ services:
       - "${WEBRTC_UDP_PORT:-8189}:8189/udp"
       - "${WEBRTC_UDP_PORT:-8189}:8189/tcp"
       - "${RTSP_PORT:-8554}:8554"
+    # Scratch image: no shell and no HTTP client. A bad config exits the process.
     healthcheck:
       test: ["CMD", "/mediamtx", "--version"]
       interval: 10s
@@ -55,7 +56,7 @@ services:
       - ${DATA_PATH:-/mnt/user/appdata/home-iptv/data}:/data
     depends_on:
       mediamtx:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
       interval: 5s
