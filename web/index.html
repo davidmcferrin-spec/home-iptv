@@ -25,8 +25,17 @@
       <video id="video" autoplay playsinline muted></video>
       <div id="stage-bars" aria-hidden="true"></div>
       <div id="starting" hidden>Starting stream...</div>
+      <div id="stats" hidden>
+        <pre id="stats-body"></pre>
+        <div id="stats-foot">
+          <p id="stats-error" role="alert"></p>
+          <p id="stats-copy-note"></p>
+          <button id="stats-copy" type="button">Copy stats</button>
+        </div>
+      </div>
       <div id="stage-chrome">
         <div id="stage-label">Live</div>
+        <button id="stats-toggle" type="button" aria-pressed="false">Stats</button>
         <button id="pip" type="button" hidden>PiP</button>
         <button id="expand" type="button">Full window</button>
         <button id="fullscreen" type="button">Fullscreen</button>
@@ -234,6 +243,7 @@
   </div>
   <script src="/static/vendor/hls.min.js"></script>
   <script src="/static/filters.js"></script>
+  <script src="/static/stats.js"></script>
   <script src="/static/guide.js"></script>
 </body>
 </html>
