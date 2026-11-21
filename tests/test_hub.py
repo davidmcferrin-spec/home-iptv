@@ -96,8 +96,12 @@ def test_transcode_plan_copies_webrtc_codecs_and_converts_the_rest():
     assert "libopus" in both
     bframes = _channel(9, has_b_frames=2, profile="High")
     plan, delivery = delivery_for(bframes)
-    assert plan == "copy"
+    assert plan == "hls-copy"
     assert delivery == "hls"
+    copied = ffmpeg_command("http://example.test/a.ts", "rtsp://mediamtx:8554/ch1", "hls-copy")
+    assert copied[copied.index("-c:v") + 1] == "copy"
+    assert "aac" in copied
+    assert "libx264" not in copied
     forced = dict(bframes)
     forced["playback_mode"] = "transcode"
     plan, delivery = delivery_for(forced)

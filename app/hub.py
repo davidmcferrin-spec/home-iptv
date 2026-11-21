@@ -77,6 +77,8 @@ def delivery_for(channel: dict) -> tuple[str, str]:
     hls_audio = audio in HLS_AUDIO or audio == ""
     if mode == "hls" or (mode == "auto" and not safe):
         if video == "h264":
+            if audio in HLS_AUDIO:
+                return ("hls-copy", "hls")
             return ("copy" if hls_audio else "hls-audio", "hls")
         return ("video" if hls_audio else "both", "hls")
     if mode == "transcode" or not safe:
@@ -122,7 +124,7 @@ def ffmpeg_command(source_url: str, publish_url: str, plan: str) -> list[str]:
         command += ["-c", "copy"]
     elif plan == "audio":
         command += ["-c:v", "copy", "-c:a", "libopus", "-ar", "48000", "-ac", "2", "-b:a", "96k"]
-    elif plan == "hls-audio":
+    elif plan in {"hls-copy", "hls-audio"}:
         command += ["-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-ac", "2"]
     elif plan == "video":
         command += [*video_encode, "-c:a", "copy"]
