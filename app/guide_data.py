@@ -63,7 +63,9 @@ def refresh_guide(database_path: str, fetch=None) -> dict:
                 summary["missed"] += 1
                 continue
             summary["matched"] += 1
-            logo = None if row["logo_source"] in {"manual", "m3u"} else logo_for.get(found["id"])
+            org = logo_for.get(found["id"])
+            org_url = None if org is None else org["url"]
+            logo = None if row["logo_source"] in {"manual", "m3u"} else org
             logo_url = None if logo is None else logo["url"]
             conn.execute(
                 """
@@ -73,10 +75,11 @@ def refresh_guide(database_path: str, fetch=None) -> dict:
                     guide_source = 'iptv-org',
                     logo_url = CASE WHEN logo_source IN ('manual', 'm3u') OR ? IS NULL THEN logo_url ELSE ? END,
                     logo_source = CASE WHEN logo_source IN ('manual', 'm3u') OR ? IS NULL THEN logo_source ELSE 'iptv-org' END,
+                    org_logo_url = COALESCE(?, org_logo_url),
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (found["id"], found["id"], logo_url, logo_url, logo_url, utcnow(), row["id"]),
+                (found["id"], found["id"], logo_url, logo_url, logo_url, org_url, utcnow(), row["id"]),
             )
             if logo is not None:
                 summary["logos"] += 1

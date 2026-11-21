@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api import router
@@ -14,6 +14,7 @@ from app.db import init_db
 from app.emulation import router as emulation_router
 from app.emulation import start_discovery
 from app.hub import Hub, MediaMTXClient, MediaMTXError
+from app.icons import apple_touch_png, favicon_ico, favicon_svg
 from app.mediamtx_config import write_config
 from app.worker import worker_loop
 
@@ -70,6 +71,18 @@ def create_app() -> FastAPI:
         if not index.is_file():
             raise HTTPException(404, "guide is not installed")
         return FileResponse(index)
+
+    @app.get("/favicon.svg")
+    def favicon_svg_route():
+        return Response(favicon_svg(), media_type="image/svg+xml")
+
+    @app.get("/favicon.ico")
+    def favicon_ico_route():
+        return Response(favicon_ico(), media_type="image/x-icon")
+
+    @app.get("/apple-touch-icon.png")
+    def apple_touch_route():
+        return Response(apple_touch_png(), media_type="image/png")
 
     if WEB_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

@@ -21,6 +21,7 @@ services:
       - "${HLS_PORT:-8888}:8888"
       - "${WEBRTC_PORT:-8889}:8889"
       - "${WEBRTC_UDP_PORT:-8189}:8189/udp"
+      - "${WEBRTC_UDP_PORT:-8189}:8189/tcp"
       - "${RTSP_PORT:-8554}:8554"
     healthcheck:
       test: ["CMD", "/mediamtx", "--version"]

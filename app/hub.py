@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 WEBRTC_VIDEO = {"h264", "vp8", "vp9", "av1"}
 WEBRTC_AUDIO = {"opus", "pcmu", "pcma", "g722"}
+HLS_AUDIO = {"aac", "mp3", "ac3", "eac3"}
+PLAYBACK_MODES = {"auto", "webrtc", "hls", "transcode"}
 
 
 class TunersBusy(Exception):
@@ -52,6 +54,37 @@ def transcode_plan(video_codec: str | None, audio_codec: str | None) -> str:
     return "both"
 
 
+def webrtc_safe(video: str | None, profile: str | None, has_b_frames: int | None) -> bool:
+    name = (video or "").lower()
+    if name not in WEBRTC_VIDEO:
+        return False
+    if name != "h264":
+        return True
+    if has_b_frames is None or int(has_b_frames) > 0:
+        return False
+    if (profile or "").lower().startswith("high"):
+        return False
+    return True
+
+
+def delivery_for(channel: dict) -> tuple[str, str]:
+    mode = (channel.get("playback_mode") or "auto").lower()
+    if mode not in PLAYBACK_MODES:
+        mode = "auto"
+    video = (channel.get("video_codec") or "").lower()
+    audio = (channel.get("audio_codec") or "").lower()
+    safe = webrtc_safe(video, channel.get("video_profile"), channel.get("has_b_frames"))
+    hls_audio = audio in HLS_AUDIO or audio == ""
+    if mode == "hls" or (mode == "auto" and not safe):
+        if video == "h264":
+            return ("copy" if hls_audio else "hls-audio", "hls")
+        return ("video" if hls_audio else "both", "hls")
+    if mode == "transcode" or not safe:
+        audio_ok = audio in WEBRTC_AUDIO or audio == ""
+        return ("video" if audio_ok else "both", "webrtc")
+    return transcode_plan(video, audio), "webrtc"
+
+
 def ffmpeg_command(source_url: str, publish_url: str, plan: str) -> list[str]:
     command = [
         "ffmpeg",
@@ -61,56 +94,40 @@ def ffmpeg_command(source_url: str, publish_url: str, plan: str) -> list[str]:
         "-rw_timeout",
         "15000000",
         "-fflags",
-        "nobuffer",
+        "+genpts+discardcorrupt+nobuffer",
         "-flags",
         "low_delay",
         "-i",
         source_url,
     ]
+    video_encode = [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-tune",
+        "zerolatency",
+        "-pix_fmt",
+        "yuv420p",
+        "-profile:v",
+        "baseline",
+        "-bf",
+        "0",
+        "-g",
+        "60",
+        "-keyint_min",
+        "60",
+    ]
     if plan == "copy":
         command += ["-c", "copy"]
     elif plan == "audio":
         command += ["-c:v", "copy", "-c:a", "libopus", "-ar", "48000", "-ac", "2", "-b:a", "96k"]
+    elif plan == "hls-audio":
+        command += ["-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-ac", "2"]
     elif plan == "video":
-        command += [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            "30",
-            "-profile:v",
-            "baseline",
-            "-c:a",
-            "copy",
-        ]
+        command += [*video_encode, "-c:a", "copy"]
     else:
-        command += [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            "30",
-            "-profile:v",
-            "baseline",
-            "-c:a",
-            "libopus",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            "-b:a",
-            "96k",
-        ]
+        command += [*video_encode, "-c:a", "libopus", "-ar", "48000", "-ac", "2", "-b:a", "96k"]
     command += ["-muxdelay", "0", "-muxpreload", "0", "-f", "rtsp", "-rtsp_transport", "tcp", publish_url]
     return command
 
@@ -168,6 +185,7 @@ class ActiveStream:
     started: float
     last_reader: float
     origins: set[str] = field(default_factory=set)
+    delivery: str = "webrtc"
 
 
 class Hub:
@@ -176,7 +194,7 @@ class Hub:
         cfg: Settings,
         mediamtx: MediaMTXClient,
         popen=subprocess.Popen,
-        ready_timeout: float = 20,
+        ready_timeout: float = 15,
         poll_interval: float = 0.25,
     ) -> None:
         self.cfg = cfg
@@ -223,17 +241,21 @@ class Hub:
         with self._lock:
             self._drop_dead_locked()
             current = self._active.get(channel_id)
+            reused = False
             if current is not None and current.process.poll() is None:
                 current.last_reader = time.monotonic()
                 current.origins.add(origin)
+                stream = current
+                reused = True
                 log.info("upstream pull reused for channel %s", channel_id)
-                return self._describe(current)
-            self._reserve_locked(channel, device, origin)
-            stream = self._spawn_locked(channel, device, origin)
+            else:
+                self._reserve_locked(channel, device, origin)
+                stream = self._spawn_locked(channel, device, origin)
         try:
             self._wait_ready(stream)
         except StreamStartError:
-            self._stop_stream(channel_id)
+            if not reused:
+                self._stop_stream(channel_id)
             raise
         log.info("upstream pull started for channel %s plan %s", channel_id, stream.plan)
         return self._describe(stream)
@@ -304,7 +326,9 @@ class Hub:
             self._stop_stream(channel_id)
 
     def _prepare_codecs(self, channel: dict) -> None:
-        if channel.get("video_codec") or channel.get("audio_codec"):
+        known = channel.get("video_codec") or channel.get("audio_codec")
+        needs_frames = (channel.get("video_codec") or "").lower() == "h264" and channel.get("has_b_frames") is None
+        if known and not needs_frames:
             if channel.get("status") == "offline":
                 raise StreamOffline(channel.get("status_detail") or "stream is offline")
             return
@@ -319,6 +343,8 @@ class Hub:
             raise StreamOffline(result.detail or "stream is offline")
         channel["video_codec"] = result.video_codec
         channel["audio_codec"] = result.audio_codec
+        channel["video_profile"] = result.video_profile
+        channel["has_b_frames"] = result.has_b_frames
         channel["status"] = "online"
 
     def _reserve_locked(self, channel: dict, device: dict | None, origin: str) -> None:
@@ -339,7 +365,7 @@ class Hub:
     def _spawn_locked(self, channel: dict, device: dict | None, origin: str) -> ActiveStream:
         channel_id = int(channel["id"])
         path = f"ch{channel_id}"
-        plan = transcode_plan(channel.get("video_codec"), channel.get("audio_codec"))
+        plan, delivery = delivery_for(channel)
         try:
             self.mediamtx.ensure_path(path)
         except MediaMTXError as exc:
@@ -364,6 +390,7 @@ class Hub:
             started=time.monotonic(),
             last_reader=time.monotonic(),
             origins={origin},
+            delivery=delivery,
         )
         self._active[channel_id] = stream
         return stream
@@ -377,10 +404,14 @@ class Hub:
                 path = self.mediamtx.get_path(stream.path)
             except MediaMTXError as exc:
                 raise StreamStartError(str(exc)) from exc
-            if path and path.get("ready"):
+            if _published(path):
                 return
             if time.monotonic() >= deadline:
-                raise StreamStartError("MediaMTX path did not become ready")
+                tail = self._log_tail(stream)
+                detail = "MediaMTX path did not become ready"
+                if tail:
+                    detail = f"{detail}: {tail}"
+                raise StreamStartError(detail)
             time.sleep(self.poll_interval)
 
     def _describe(self, stream: ActiveStream) -> dict:
@@ -390,6 +421,7 @@ class Hub:
             "whep_url": f"{self.cfg.public_webrtc_base}/{stream.path}/whep",
             "llhls_url": f"{self.cfg.public_hls_base}/{stream.path}/index.m3u8",
             "transcode": stream.plan,
+            "playback": stream.delivery,
             "idle_timeout_seconds": self.idle_seconds(),
             "upstream_pulls": 1,
         }
@@ -424,9 +456,20 @@ class Hub:
             log_file.close()
 
     def _log_tail(self, stream: ActiveStream) -> str:
+        log_file = stream.log_file
+        if log_file is not None and not log_file.closed:
+            log_file.flush()
         path = Path(self.cfg.data_dir) / "streams" / f"{stream.path}.log"
         try:
             data = path.read_bytes()
         except OSError:
             return ""
         return data.decode("utf-8", errors="replace")[-400:].strip()
+
+
+def _published(path: dict | None) -> bool:
+    if not path or not path.get("ready"):
+        return False
+    if path.get("tracks"):
+        return True
+    return (path.get("bytesReceived") or 0) > 0

@@ -4,7 +4,7 @@ import pytest
 
 from app.config import settings
 from app.db import init_db
-from app.hub import Hub, TunersBusy, ffmpeg_command, transcode_plan
+from app.hub import Hub, TunersBusy, delivery_for, ffmpeg_command, transcode_plan
 
 
 class FakeProc:
@@ -66,12 +66,15 @@ def _hub(tmp_path, monkeypatch):
     return hub, recorder, mtx
 
 
-def _channel(channel_id, codec_video="h264", codec_audio="aac", device_id=None):
+def _channel(channel_id, codec_video="h264", codec_audio="aac", device_id=None, has_b_frames=0, profile="Baseline"):
     return {
         "id": channel_id,
         "url": f"http://example.test/{channel_id}.ts",
         "video_codec": codec_video,
         "audio_codec": codec_audio,
+        "video_profile": profile,
+        "has_b_frames": has_b_frames,
+        "playback_mode": "auto",
         "status": "online",
         "status_detail": None,
         "device_id": device_id,
@@ -88,7 +91,18 @@ def test_transcode_plan_copies_webrtc_codecs_and_converts_the_rest():
     assert "libopus" in audio
     both = ffmpeg_command("http://example.test/a.ts", "rtsp://mediamtx:8554/ch1", "both")
     assert "libx264" in both
+    assert "veryfast" in both
+    assert both[both.index("-bf") + 1] == "0"
     assert "libopus" in both
+    bframes = _channel(9, has_b_frames=2, profile="High")
+    plan, delivery = delivery_for(bframes)
+    assert plan == "copy"
+    assert delivery == "hls"
+    forced = dict(bframes)
+    forced["playback_mode"] = "transcode"
+    plan, delivery = delivery_for(forced)
+    assert plan == "both"
+    assert delivery == "webrtc"
 
 
 def test_second_viewer_does_not_open_a_second_pull(tmp_path, monkeypatch):

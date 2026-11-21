@@ -81,7 +81,7 @@ def render_m3u(conn, rows, base: str, guide_url: str, mode: str) -> str:
             "#EXTINF:-1 "
             f'tvg-id="{_attr(tvg_id)}" '
             f'tvg-name="{_attr(name)}" '
-            f'tvg-logo="{_attr(row["logo_url"])}" '
+            f'tvg-logo="{_attr(base + "/api/logo/" + str(row["id"]))}" '
             f'group-title="{_attr(folder_name(conn, row, mode))}",'
             f"{row['title']}"
         )

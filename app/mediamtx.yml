@@ -17,7 +17,8 @@ webrtc: true
 webrtcAddress: :8889
 webrtcAllowOrigins: ["*"]
 webrtcLocalUDPAddress: :8189
-webrtcIPsFromInterfaces: true
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: false
 webrtcAdditionalHosts: []
 
 authMethod: internal

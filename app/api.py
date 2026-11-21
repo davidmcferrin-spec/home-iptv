@@ -4,8 +4,10 @@ import sqlite3
 from urllib.parse import urlparse
 
 import httpx
+from pathlib import Path
+
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response as RawResponse
 from pydantic import BaseModel, Field
 
 from app.catalog import (
@@ -29,6 +31,7 @@ from app.hdhomerun import (
     scan_lan,
 )
 from app.hub import MediaMTXError, StreamOffline, StreamStartError, TunersBusy
+from app.logos import cached_logo
 from app.public_url import is_loopback, playback_base, request_hostname, rewrite_playback
 from app.importer import (
     PlaylistFetchError,
@@ -78,6 +81,9 @@ class ChannelPatch(BaseModel):
     logo_url: str | None = None
     tvg_id: str | None = None
     title: str | None = None
+    playback_mode: str | None = None
+    hidden: bool | None = None
+    notes: str | None = None
     add_tag_ids: list[int] = Field(default_factory=list)
     remove_tag_ids: list[int] = Field(default_factory=list)
 
@@ -214,6 +220,28 @@ def _reject_duplicate_playlist(conn, name: str, url: str | None) -> None:
 @router.get("/api/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@router.get("/api/logo/{channel_id}")
+def channel_logo(request: Request, channel_id: int) -> RawResponse:
+    conn = _db(request)
+    try:
+        row = conn.execute("SELECT id, title, logo_url, org_logo_url FROM channels WHERE id = ?", (channel_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(404, "channel not found")
+    urls = []
+    for value in (row["logo_url"], row["org_logo_url"]):
+        if value and value not in urls:
+            urls.append(value)
+    data, kind = cached_logo(
+        Path(request.app.state.cfg.data_dir) / "logos",
+        channel_id,
+        row["title"] or "TV",
+        urls,
+    )
+    return RawResponse(content=data, media_type=kind, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/api/channels")
