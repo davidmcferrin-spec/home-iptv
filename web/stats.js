@@ -158,6 +158,46 @@
     ];
   }
 
+  function copyWithCommand(doc, text) {
+    const area = doc.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.left = "-9999px";
+    area.style.top = "0";
+    doc.body.appendChild(area);
+    area.focus();
+    area.select();
+    let copied = false;
+    try {
+      copied = doc.execCommand("copy") === true;
+    } catch (err) {
+      copied = false;
+    }
+    area.remove();
+    return copied;
+  }
+
+  async function copyPlainText(view, text) {
+    const secure = Boolean(view.isSecureContext);
+    const clipboard = view.navigator && view.navigator.clipboard;
+    if (secure && clipboard && typeof clipboard.writeText === "function") {
+      try {
+        await clipboard.writeText(text);
+        return "clipboard";
+      } catch (err) {
+        if (copyWithCommand(view.document, text)) return "command";
+        const error = err instanceof Error ? err : new Error("Copy failed");
+        error.manual = true;
+        throw error;
+      }
+    }
+    if (copyWithCommand(view.document, text)) return "command";
+    const error = new Error("Copy command returned false");
+    error.manual = true;
+    throw error;
+  }
+
   function formatStats(fields) {
     const lines = [
       `Channel: ${fields.channel || "n/a"}`,
@@ -183,5 +223,7 @@
     codecFromHlsLevel,
     statRows,
     formatStats,
+    copyWithCommand,
+    copyPlainText,
   };
 });

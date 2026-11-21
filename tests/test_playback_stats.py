@@ -83,6 +83,65 @@ assert.ok(text.includes("Bitrate: 2.40 Mb/s"));
 assert.ok(text.includes("Jitter: n/a"));
 assert.ok(text.includes("Error: getStats failed: timed out"));
 assert.ok(!/[\u{1F300}-\u{1FAFF}]/u.test(text));
+
+function fakeView(options) {
+  const area = {
+    value: "",
+    attrs: {},
+    style: {},
+    setAttribute(name, value) { this.attrs[name] = value; },
+    focus() { this.focused = true; },
+    select() { this.selected = true; },
+    remove() { this.removed = true; },
+  };
+  return {
+    isSecureContext: options.secure,
+    navigator: { clipboard: options.clipboard },
+    document: {
+      area,
+      body: { appendChild(node) { this.child = node; } },
+      createElement() { return area; },
+      execCommand(command) {
+        this.command = command;
+        this.sawSelection = area.selected === true;
+        if (options.throwCommand) throw new Error("execCommand blocked");
+        return options.commandResult === true;
+      },
+    },
+  };
+}
+
+(async () => {
+  const written = [];
+  const secure = fakeView({
+    secure: true,
+    clipboard: { writeText: async (value) => { written.push(value); } },
+    commandResult: false,
+  });
+  assert.strictEqual(await stats.copyPlainText(secure, "secure-text"), "clipboard");
+  assert.deepStrictEqual(written, ["secure-text"]);
+  assert.strictEqual(secure.document.command, undefined);
+
+  const insecure = fakeView({ secure: false, clipboard: undefined, commandResult: true });
+  assert.strictEqual(await stats.copyPlainText(insecure, "lan-text"), "command");
+  assert.strictEqual(insecure.document.command, "copy");
+  assert.strictEqual(insecure.document.area.value, "lan-text");
+  assert.strictEqual(insecure.document.sawSelection, true);
+  assert.strictEqual(insecure.document.area.removed, true);
+
+  const rejected = fakeView({
+    secure: true,
+    clipboard: { writeText: async () => { throw new Error("denied"); } },
+    commandResult: true,
+  });
+  assert.strictEqual(await stats.copyPlainText(rejected, "after-deny"), "command");
+
+  const failed = fakeView({ secure: false, clipboard: undefined, commandResult: false });
+  await assert.rejects(() => stats.copyPlainText(failed, "nope"), (err) => err.manual === true);
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 """
     result = subprocess.run([node, "-e", script], cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr

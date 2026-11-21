@@ -558,7 +558,23 @@ function move(deltaRow, deltaCol) {
   focus = { row, col };
   renderGuide();
   renderInfo();
-  document.querySelector(".program.focused")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  scrollFocusIntoView();
+}
+
+function scrollFocusIntoView() {
+  const scroller = document.getElementById("guide-scroll");
+  const node = document.querySelector(".program.focused");
+  if (!scroller || !node || getComputedStyle(scroller).display === "none") return;
+  const header = scroller.querySelector(".slot-head");
+  const headerHeight = header ? header.getBoundingClientRect().height : 0;
+  const nodeRect = node.getBoundingClientRect();
+  const box = scroller.getBoundingClientRect();
+  const topLimit = box.top + headerHeight + 2;
+  if (nodeRect.top < topLimit) scroller.scrollTop -= topLimit - nodeRect.top;
+  else if (nodeRect.bottom > box.bottom) scroller.scrollTop += nodeRect.bottom - box.bottom;
+  const after = node.getBoundingClientRect();
+  if (after.left < box.left) scroller.scrollLeft -= box.left - after.left;
+  else if (after.right > box.right) scroller.scrollLeft += after.right - box.right;
 }
 
 function toggleFavorite(id) {
@@ -761,18 +777,35 @@ function watchHlsErrors(player) {
   });
 }
 
+function hideManualCopy() {
+  const panel = document.getElementById("stats-manual");
+  if (panel) panel.hidden = true;
+}
+
+function showManualCopy(text) {
+  const panel = document.getElementById("stats-manual");
+  const area = document.getElementById("stats-manual-text");
+  panel.hidden = false;
+  area.value = text;
+  area.focus();
+  area.select();
+  area.setSelectionRange(0, area.value.length);
+}
+
 async function copyStats() {
   const note = document.getElementById("stats-copy-note");
   const fields = latestSnapshot || takeSnapshot(null);
   const text = statsApi().formatStats(fields);
-  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
-    note.textContent = "Clipboard is not available";
-    return;
-  }
+  hideManualCopy();
   try {
-    await navigator.clipboard.writeText(text);
+    await statsApi().copyPlainText(window, text);
     note.textContent = "Copied";
   } catch (err) {
+    if (err && err.manual) {
+      note.textContent = "";
+      showManualCopy(text);
+      return;
+    }
     note.textContent = err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed";
   }
 }
@@ -1409,6 +1442,7 @@ document.getElementById("stats-copy").addEventListener("click", () => {
     document.getElementById("stats-copy-note").textContent = err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed";
   });
 });
+document.getElementById("stats-manual-close").addEventListener("click", hideManualCopy);
 video.addEventListener("waiting", noteStall);
 video.addEventListener("stalled", noteStall);
 video.addEventListener("enterpictureinpicture", () => {
