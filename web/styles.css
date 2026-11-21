@@ -77,10 +77,11 @@ button:focus-visible,
   bottom: 0;
   z-index: 4;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  padding: 8px;
+  gap: 4px;
+  padding: 6px;
   pointer-events: none;
 }
 
@@ -204,16 +205,17 @@ html.video-full #stats,
 #stage.has-video #stage-bars { display: none; }
 
 #stage-label {
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  font-size: 12px;
-  letter-spacing: 0.14em;
+  position: static;
+  flex: 0 0 auto;
+  margin-right: auto;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  line-height: 1;
   text-transform: uppercase;
   color: #fff;
   background: rgba(0, 0, 0, 0.45);
   border-radius: 999px;
-  padding: 4px 8px;
+  padding: 4px 7px;
   pointer-events: none;
 }
 
