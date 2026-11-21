@@ -128,11 +128,31 @@ button:focus-visible,
 #stats-error:empty,
 #stats-copy-note:empty { display: none; }
 
-#stats-copy {
+#stats-copy,
+#stats-manual-close {
   margin-top: 6px;
   min-height: 32px;
   padding: 0 10px;
   background: rgba(255, 255, 255, 0.12);
+}
+
+#stats-manual[hidden] { display: none; }
+
+#stats-manual-hint {
+  margin: 8px 0 0;
+}
+
+#stats-manual-text {
+  display: block;
+  width: 100%;
+  height: 7em;
+  margin-top: 6px;
+  resize: none;
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
 }
 
 html:not(.is-phone):not(.video-full) #stage:not(:fullscreen) #sound,

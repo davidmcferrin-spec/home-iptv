@@ -761,18 +761,35 @@ function watchHlsErrors(player) {
   });
 }
 
+function hideManualCopy() {
+  const panel = document.getElementById("stats-manual");
+  if (panel) panel.hidden = true;
+}
+
+function showManualCopy(text) {
+  const panel = document.getElementById("stats-manual");
+  const area = document.getElementById("stats-manual-text");
+  panel.hidden = false;
+  area.value = text;
+  area.focus();
+  area.select();
+  area.setSelectionRange(0, area.value.length);
+}
+
 async function copyStats() {
   const note = document.getElementById("stats-copy-note");
   const fields = latestSnapshot || takeSnapshot(null);
   const text = statsApi().formatStats(fields);
-  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
-    note.textContent = "Clipboard is not available";
-    return;
-  }
+  hideManualCopy();
   try {
-    await navigator.clipboard.writeText(text);
+    await statsApi().copyPlainText(window, text);
     note.textContent = "Copied";
   } catch (err) {
+    if (err && err.manual) {
+      note.textContent = "";
+      showManualCopy(text);
+      return;
+    }
     note.textContent = err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed";
   }
 }
@@ -1409,6 +1426,7 @@ document.getElementById("stats-copy").addEventListener("click", () => {
     document.getElementById("stats-copy-note").textContent = err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed";
   });
 });
+document.getElementById("stats-manual-close").addEventListener("click", hideManualCopy);
 video.addEventListener("waiting", noteStall);
 video.addEventListener("stalled", noteStall);
 video.addEventListener("enterpictureinpicture", () => {
