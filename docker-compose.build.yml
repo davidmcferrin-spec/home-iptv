@@ -1,6 +1,8 @@
 # Local image build. Use with the main file:
 # docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
 services:
+  prepare:
+    build: .
   app:
     build: .
   worker:

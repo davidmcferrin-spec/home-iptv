@@ -194,9 +194,49 @@ def test_guide_screenshots_and_layouts(browser, guide_url):
             else:
                 assert page.locator("#guide-scroll").is_visible()
                 assert page.locator("#info-title").is_visible()
+                page.locator(".facts").get_by_text("Unchecked").wait_for()
             assert page.locator(".chip").first.bounding_box()["height"] >= 44
             assert page.get_by_text("Midnight XXX").count() == 0
             page.screenshot(path=str(artifacts / f"guide-{name}.png"))
+        finally:
+            context.close()
+
+
+def test_settings_screenshots(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    for name, width, height in (("desktop", 1920, 1080), ("phone-portrait", 412, 915)):
+        context, page = _open(browser, guide_url, width, height)
+        try:
+            page.get_by_role("button", name="Settings").click()
+            page.locator("#port-note").wait_for()
+            uk = page.locator("#feed-list").get_by_text("epg_ripper_UK1.xml.gz")
+            uk.wait_for()
+            assert page.locator("#feed-add").bounding_box()["height"] >= 44
+            uk.scroll_into_view_if_needed()
+            page.screenshot(path=str(artifacts / f"feeds-{name}.png"))
+            page.locator("#vlc-qr").scroll_into_view_if_needed()
+            page.locator("#vlc-playlist").wait_for()
+            assert page.locator("#copy-playlist").bounding_box()["height"] >= 44
+            page.screenshot(path=str(artifacts / f"settings-{name}.png"))
+        finally:
+            context.close()
+
+
+def test_editor_screenshots(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    for name, width, height in (("desktop", 1920, 1080), ("phone-portrait", 412, 915)):
+        context, page = _open(browser, guide_url, width, height)
+        try:
+            phone = width <= 720 or (height <= 500 and width <= 980)
+            pick = page.locator("#phone-list .pick" if phone else "#guide .pick").first
+            pick.check()
+            page.get_by_role("button", name="Edit", exact=True).click()
+            page.locator("#edit-title").wait_for()
+            assert page.locator("#edit-title").bounding_box()["height"] >= 44
+            assert page.locator("#edit-add-tag").bounding_box()["height"] >= 44
+            page.screenshot(path=str(artifacts / f"editor-{name}.png"))
         finally:
             context.close()
 
@@ -205,7 +245,9 @@ def test_adult_channels_reset_with_the_session(browser, guide_url):
     context, page = _open(browser, guide_url, 1280, 800)
     try:
         assert page.get_by_text("Midnight XXX").count() == 0
-        page.get_by_role("button", name="Show adult content").click()
+        page.get_by_role("button", name="Settings").click()
+        page.locator("#set-adult").check()
+        page.locator("#settings-form").get_by_role("button", name="Save").click()
         page.locator(".channel-name", has_text="Midnight XXX").wait_for()
     finally:
         context.close()
@@ -255,8 +297,8 @@ def test_import_screen_at_each_viewport(browser, guide_url):
             page.locator("#upload-name").fill(name)
             page.get_by_role("button", name="Upload").click()
             row = page.locator("#playlist-list").get_by_text(name, exact=True)
-            row.wait_for()
-            page.locator("#playlist-list").get_by_text("Checking").first.wait_for()
+            row.wait_for(state="attached")
+            row.locator("xpath=..").get_by_text("Checking").wait_for(state="attached")
             row.scroll_into_view_if_needed()
             page.screenshot(path=str(artifacts / f"import-{name}.png"))
         finally:

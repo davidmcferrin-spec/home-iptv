@@ -15,7 +15,7 @@ Personal LAN app. It imports playlists and HDHomeRun lineups the operator is all
 - `app/emulation.py` is the optional HDHomeRun device (off by default).
 - `app/epg.py` reads XMLTV.
 - `web/` is the set-top guide (HTML, CSS, and `guide.js`). Viewer defaults live in `localStorage`. The adult toggle lives in `sessionStorage`.
-- `mediamtx.yml` is the relay config. `scripts/test_sources.py` serves local ffmpeg patterns.
+- `app/mediamtx.yml` is written to the config volume at start. `scripts/test_sources.py` serves local ffmpeg patterns.
 - `unraid/home-iptv.xml` is the Community Applications template. `docker-compose.yml` is the full stack.
 - `tests/` covers the parser, detection, adult filtering, lineup parsing, the search API, the single upstream pull, emulation, and the guide UI.
 

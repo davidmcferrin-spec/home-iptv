@@ -20,6 +20,9 @@ let numberTimer = 0;
 let peer = null;
 let hlsPlayer = null;
 let started = false;
+let selectedIds = new Set();
+let editorTags = [];
+let knownTags = [];
 
 function floorHalfHour(ms) {
   return ms - (ms % SLOT_MS);
@@ -161,6 +164,9 @@ function activeFilters() {
   if (chip.startsWith("country:")) {
     return { country: chip.slice(8), languages: [], tags: [], sort: view.sort, order: view.order };
   }
+  if (chip.startsWith("status:")) {
+    return { country: "", languages: [], tags: [], status: chip.slice(7), sort: view.sort, order: view.order };
+  }
   return { country: "", languages: [], tags: [], sort: view.sort, order: view.order };
 }
 
@@ -168,6 +174,7 @@ async function loadGuide() {
   const filters = activeFilters();
   const params = { sort: filters.sort, order: filters.order };
   if (filters.country) params.country = filters.country;
+  if (filters.status) params.status = filters.status;
   const list = await fetchChannels(params);
   let next = list.filter((channel) => {
     if (filters.languages.length && !filters.languages.includes(channel.language)) return false;
@@ -275,7 +282,13 @@ function renderChips() {
   const view = loadView();
   const items = [{ id: "all", label: "All channels" }];
   if (view.country || view.languages.length || view.tags.length) items.push({ id: "saved", label: "My view" });
-  items.push({ id: "favorites", label: "Favorites" }, { id: "popular", label: "Most Popular" });
+  items.push(
+    { id: "favorites", label: "Favorites" },
+    { id: "popular", label: "Most Popular" },
+    { id: "status:online", label: "Online" },
+    { id: "status:offline", label: "Offline" },
+    { id: "status:unknown", label: "Unchecked" },
+  );
   const tags = new Set();
   const languages = new Set();
   const countries = new Set();
@@ -317,10 +330,33 @@ function renderInfo() {
     badge.textContent = "HD";
     meta.appendChild(badge);
   }
+  if (channel) {
+    const facts = document.createElement("span");
+    facts.className = `facts ${channel.status || "unknown"}`;
+    facts.textContent = channelFacts(channel);
+    meta.appendChild(facts);
+  }
   if (program) {
     meta.appendChild(document.createTextNode(`${formatWhen(Date.parse(program.start_at))} – ${formatWhen(Date.parse(program.stop_at))}`));
   }
   document.getElementById("info-desc").textContent = program?.description || "";
+}
+
+function statusLabel(channel) {
+  if (channel.status === "online") return "Online";
+  if (channel.status === "offline") return "Offline";
+  return "Unchecked";
+}
+
+function channelFacts(channel) {
+  const bits = [statusLabel(channel)];
+  if (channel.width && channel.height) bits.push(`${channel.width}x${channel.height}`);
+  if (channel.video_codec) bits.push(channel.video_codec);
+  if (channel.audio_codec) bits.push(channel.audio_codec);
+  bits.push(channel.last_checked_at ? `checked ${channel.last_checked_at.replace("T", " ").replace("Z", " UTC")}` : "not checked");
+  if (channel.guide_source) bits.push(channel.guide_source);
+  if (channel.programme_source) bits.push(channel.programme_source);
+  return bits.join(" · ");
 }
 
 function renderGuide() {
@@ -355,7 +391,9 @@ function renderGuide() {
     tuneButton.appendChild(Object.assign(document.createElement("span"), { className: "channel-num", textContent: channel.guide_number }));
     tuneButton.appendChild(logoNode(channel));
     tuneButton.appendChild(Object.assign(document.createElement("span"), { className: "channel-name", textContent: channel.title }));
+    tuneButton.appendChild(Object.assign(document.createElement("span"), { className: `channel-status ${channel.status || "unknown"}`, textContent: statusLabel(channel) }));
     tuneButton.addEventListener("click", () => tune(channel));
+    cell.appendChild(pickBox(channel));
     cell.appendChild(tuneButton);
     const heart = document.createElement("button");
     heart.type = "button";
@@ -427,12 +465,32 @@ function renderPhone() {
     row.innerHTML = `<span class="channel-num"></span><span class="text"><span class="name"></span><span class="now"></span><span class="next"></span></span>`;
     row.querySelector(".channel-num").textContent = channel.guide_number;
     row.querySelector(".name").textContent = channel.title;
-    row.querySelector(".now").textContent = `Now  ${now ? now.title : channel.title}`;
+    row.querySelector(".now").textContent = `${statusLabel(channel)}  ${now ? now.title : channel.title}`;
     row.querySelector(".next").textContent = `Next  ${next ? next.title : "No schedule"}`;
     row.prepend(logoNode(channel));
     row.addEventListener("click", () => tune(channel));
-    list.appendChild(row);
+    const wrap = document.createElement("div");
+    wrap.className = "phone-wrap";
+    wrap.appendChild(pickBox(channel));
+    wrap.appendChild(row);
+    list.appendChild(wrap);
   });
+}
+
+function pickBox(channel) {
+  const pick = document.createElement("input");
+  pick.type = "checkbox";
+  pick.className = "pick";
+  pick.checked = selectedIds.has(channel.id);
+  pick.setAttribute("aria-label", `Select ${channel.title}`);
+  pick.addEventListener("click", (event) => event.stopPropagation());
+  pick.addEventListener("change", () => {
+    if (pick.checked) selectedIds.add(channel.id);
+    else selectedIds.delete(channel.id);
+    const button = document.getElementById("open-editor");
+    button.textContent = selectedIds.size > 1 ? `Edit ${selectedIds.size}` : "Edit";
+  });
+  return pick;
 }
 
 function placeDim() {
@@ -456,10 +514,8 @@ function render() {
   renderGuide();
   renderPhone();
   placeDim();
-  const adult = document.getElementById("adult-toggle");
-  adult.textContent = showAdult() ? "Hide adult content" : "Show adult content";
-  const setAdult = document.getElementById("set-adult");
-  if (setAdult) setAdult.checked = showAdult();
+  const setAdultBox = document.getElementById("set-adult");
+  if (setAdultBox) setAdultBox.checked = showAdult();
 }
 
 function placeNowLine() {
@@ -550,7 +606,7 @@ async function tune(channel) {
       await playHls(info.llhls_url);
     } catch (hlsErr) {
       if (!(hlsErr instanceof Error)) throw hlsErr;
-      toast("Playback did not start");
+      toast(`${err.message}. ${hlsErr.message}`);
     }
   }
   render();
@@ -593,19 +649,47 @@ async function playWhep(url) {
     video.srcObject = event.streams[0];
     stage.classList.add("has-video");
     video.play().catch((err) => {
-      if (err.name !== "NotAllowedError") toast("The picture was blocked by the browser");
+      if (err.name === "NotAllowedError") toast("The picture was blocked by the browser");
     });
   };
   const offer = await connection.createOffer();
   await connection.setLocalDescription(offer);
   await waitForIce(connection);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/sdp" },
-    body: connection.localDescription.sdp,
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/sdp" },
+      body: connection.localDescription.sdp,
+    });
+  } catch (err) {
+    throw new Error(`WHEP handshake failed: ${err.message}`);
+  }
+  if (!response.ok) throw new Error(`WHEP handshake failed: HTTP ${response.status}`);
+  try {
+    await connection.setRemoteDescription({ type: "answer", sdp: await response.text() });
+  } catch (err) {
+    throw new Error(`WHEP handshake failed: ${err.message}`);
+  }
+  await waitForConnected(connection);
+}
+
+function waitForConnected(connection) {
+  if (connection.connectionState === "connected") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("WebRTC ICE failed: timed out")), 8000);
+    const check = () => {
+      if (connection.connectionState === "connected") {
+        window.clearTimeout(timer);
+        resolve();
+      } else if (connection.connectionState === "failed" || connection.iceConnectionState === "failed") {
+        window.clearTimeout(timer);
+        reject(new Error("WebRTC ICE failed"));
+      }
+    };
+    connection.addEventListener("connectionstatechange", check);
+    connection.addEventListener("iceconnectionstatechange", check);
   });
-  if (!response.ok) throw new Error(`whep returned ${response.status}`);
-  await connection.setRemoteDescription({ type: "answer", sdp: await response.text() });
 }
 
 async function playHls(url) {
@@ -618,7 +702,7 @@ async function playHls(url) {
     await new Promise((resolve, reject) => {
       player.on(window.Hls.Events.MANIFEST_PARSED, resolve);
       player.on(window.Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) reject(new Error(data.type || "hls"));
+        if (data.fatal) reject(new Error(`HLS fallback failed: ${data.details || data.type || "error"}`));
       });
     });
     stage.classList.add("has-video");
@@ -631,7 +715,7 @@ async function playHls(url) {
     await video.play();
     return;
   }
-  throw new Error("this browser cannot play LL-HLS");
+  throw new Error("HLS fallback failed: this browser cannot play LL-HLS");
 }
 
 function tuneRelative(step) {
@@ -711,6 +795,99 @@ function openSettings() {
   document.getElementById("set-sort").value = view.sort;
   document.getElementById("set-adult").checked = showAdult();
   document.getElementById("settings").hidden = false;
+  loadServerSettings().catch((err) => toast(err.message));
+}
+
+async function loadServerSettings() {
+  const response = await fetch("/api/settings");
+  if (!response.ok) throw new Error(`settings returned ${response.status}`);
+  const body = await response.json();
+  document.getElementById("set-http-base").value = body.public_http_base || "";
+  document.getElementById("set-http-base").placeholder = body.effective_http_base || "Detected from the browser";
+  document.getElementById("set-webrtc-base").value = body.public_webrtc_base || "";
+  document.getElementById("set-webrtc-base").placeholder = body.effective_webrtc_base || "Detected from the browser";
+  document.getElementById("set-hls-base").value = body.public_hls_base || "";
+  document.getElementById("set-hls-base").placeholder = body.effective_hls_base || "Detected from the browser";
+  document.getElementById("set-webrtc-host").value = body.webrtc_additional_host || "";
+  document.getElementById("set-webrtc-host").placeholder = body.effective_webrtc_host || "Detected LAN address";
+  document.getElementById("set-verify-concurrency").value = body.verify_concurrency;
+  document.getElementById("set-verify-timeout").value = body.verify_timeout_seconds;
+  document.getElementById("set-verify-interval").value = body.verify_interval_minutes;
+  document.getElementById("set-idle").value = body.idle_timeout_seconds;
+  document.getElementById("set-emulation").checked = body.hdhr_emulation;
+  document.getElementById("port-http").value = body.ports.http;
+  document.getElementById("port-webrtc").value = body.ports.webrtc;
+  document.getElementById("port-webrtc-udp").value = body.ports.webrtc_udp;
+  document.getElementById("port-hls").value = body.ports.hls;
+  document.getElementById("port-note").textContent = body.ports_note;
+  document.getElementById("set-playlist-group").value = body.playlist_group || "tag";
+  const share = await fetch("/api/share");
+  if (!share.ok) throw new Error(`share returned ${share.status}`);
+  const links = await share.json();
+  document.getElementById("vlc-playlist").value = links.playlist_url;
+  document.getElementById("vlc-guide").value = links.guide_url;
+  document.getElementById("vlc-qr").innerHTML = links.playlist_qr;
+  await loadFeeds();
+}
+
+async function loadFeeds() {
+  const response = await fetch("/api/epg/feeds");
+  if (!response.ok) throw new Error(`guide feeds returned ${response.status}`);
+  const body = await response.json();
+  const list = document.getElementById("feed-list");
+  list.innerHTML = "";
+  body.feeds.forEach((feed) => {
+    const row = document.createElement("label");
+    row.className = "check feed-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = feed.enabled;
+    input.addEventListener("change", () => {
+      fetch(`/api/epg/feeds/${feed.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: input.checked }),
+      }).then((result) => {
+        if (!result.ok) toast(`guide feed returned ${result.status}`);
+      });
+    });
+    row.appendChild(input);
+    const text = document.createElement("span");
+    text.className = "feed-text";
+    const country = feed.country || "Any country";
+    const title = document.createElement("span");
+    title.textContent = `${country}  ${feed.url}`;
+    const status = document.createElement("span");
+    status.className = "meta";
+    status.textContent = feed.last_status ? `${feed.last_status}, ${feed.last_matched || 0} matched` : "not fetched";
+    text.append(title, status);
+    row.appendChild(text);
+    list.appendChild(row);
+  });
+}
+
+async function addFeed() {
+  const input = document.getElementById("feed-url");
+  const url = input.value.trim();
+  if (!url) return;
+  const response = await fetch("/api/epg/feeds", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!response.ok) {
+    let detail = `guide feed returned ${response.status}`;
+    try {
+      const body = await response.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+    }
+    toast(detail);
+    return;
+  }
+  input.value = "";
+  await loadFeeds();
 }
 
 function saveSettings(event) {
@@ -728,10 +905,44 @@ function saveSettings(event) {
   };
   localStorage.setItem(VIEW_KEY, JSON.stringify(view));
   sessionStorage.setItem(ADULT_KEY, document.getElementById("set-adult").checked ? "1" : "0");
-  document.getElementById("settings").hidden = true;
-  chip = view.country || view.languages.length || view.tags.length ? "saved" : "all";
-  catalog = [];
-  loadGuide().catch((err) => toast(err.message));
+  saveServerSettings()
+    .then(() => {
+      document.getElementById("settings").hidden = true;
+      chip = view.country || view.languages.length || view.tags.length ? "saved" : "all";
+      catalog = [];
+      loadGuide().catch((err) => toast(err.message));
+    })
+    .catch((err) => toast(err.message));
+}
+
+async function saveServerSettings() {
+  const payload = {
+    public_http_base: document.getElementById("set-http-base").value.trim(),
+    public_webrtc_base: document.getElementById("set-webrtc-base").value.trim(),
+    public_hls_base: document.getElementById("set-hls-base").value.trim(),
+    webrtc_additional_host: document.getElementById("set-webrtc-host").value.trim(),
+    verify_concurrency: Number(document.getElementById("set-verify-concurrency").value),
+    verify_timeout_seconds: Number(document.getElementById("set-verify-timeout").value),
+    verify_interval_minutes: Number(document.getElementById("set-verify-interval").value),
+    idle_timeout_seconds: Number(document.getElementById("set-idle").value),
+    hdhr_emulation: document.getElementById("set-emulation").checked,
+    playlist_group: document.getElementById("set-playlist-group").value,
+  };
+  const response = await fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let detail = `settings returned ${response.status}`;
+    try {
+      const body = await response.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+    }
+    throw new Error(detail);
+  }
 }
 
 function setAdult(on) {
@@ -740,8 +951,24 @@ function setAdult(on) {
   loadGuide().catch((err) => toast(err.message));
 }
 
-document.getElementById("adult-toggle").addEventListener("click", () => setAdult(!showAdult()));
 document.getElementById("open-settings").addEventListener("click", openSettings);
+document.getElementById("feed-add").addEventListener("click", () => {
+  addFeed().catch((err) => toast(err.message));
+});
+document.getElementById("feed-url").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addFeed().catch((err) => toast(err.message));
+  }
+});
+document.getElementById("open-editor").addEventListener("click", openEditor);
+document.getElementById("close-editor").addEventListener("click", () => {
+  document.getElementById("editor").hidden = true;
+});
+document.getElementById("edit-add-tag").addEventListener("click", addEditorTag);
+document.getElementById("editor-form").addEventListener("submit", saveEditor);
+document.getElementById("copy-playlist").addEventListener("click", () => copyField("vlc-playlist"));
+document.getElementById("copy-guide").addEventListener("click", () => copyField("vlc-guide"));
 document.getElementById("open-import").addEventListener("click", openImport);
 document.getElementById("close-import").addEventListener("click", closeImport);
 document.getElementById("choose-file").addEventListener("click", () => {
@@ -786,18 +1013,187 @@ document.getElementById("sound").addEventListener("click", () => {
   document.getElementById("sound").textContent = video.muted ? "Sound" : "Mute";
 });
 
+function copyField(id) {
+  const input = document.getElementById(id);
+  input.focus();
+  input.select();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(input.value).then(() => toast("Copied")).catch(() => {});
+  }
+}
+
+function fillDataList(id, values) {
+  const list = document.getElementById(id);
+  list.innerHTML = "";
+  values.forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    list.appendChild(option);
+  });
+}
+
+function drawEditorTags() {
+  const box = document.getElementById("edit-tag-list");
+  box.innerHTML = "";
+  editorTags.forEach((tag) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tag-chip";
+    button.textContent = `${tag.name}  Remove`;
+    button.addEventListener("click", () => {
+      editorTags = editorTags.filter((item) => item.id !== tag.id);
+      drawEditorTags();
+    });
+    box.appendChild(button);
+  });
+}
+
+async function openEditor() {
+  const ids = selectedIds.size ? [...selectedIds] : (channels[focus.row] ? [channels[focus.row].id] : []);
+  if (!ids.length) {
+    toast("No channel to edit");
+    return;
+  }
+  const many = ids.length > 1;
+  document.getElementById("editor-title").textContent = many ? `Edit ${ids.length} channels` : "Edit channel";
+  document.getElementById("editor-single").hidden = many;
+  document.getElementById("edit-adult-one").hidden = many;
+  document.getElementById("edit-adult-many").hidden = !many;
+  document.getElementById("editor-error").textContent = "";
+  document.getElementById("edit-language").value = "";
+  document.getElementById("edit-language").placeholder = many ? "Leave unchanged" : "";
+  document.getElementById("edit-country").value = "";
+  document.getElementById("edit-country").placeholder = many ? "Leave unchanged" : "";
+  document.getElementById("edit-adult-bulk").value = "";
+  const tagResponse = await fetch("/api/tags?include_adult=true");
+  knownTags = tagResponse.ok ? (await tagResponse.json()).tags : [];
+  fillDataList("tag-list", knownTags.map((tag) => tag.name));
+  fillDataList("language-list", [...new Set(catalog.map((item) => item.language).filter(Boolean))]);
+  fillDataList("country-list", [...new Set(catalog.map((item) => item.country).filter(Boolean))]);
+  const one = catalog.find((item) => item.id === ids[0]) || channels.find((item) => item.id === ids[0]);
+  if (!many && one) {
+    document.getElementById("edit-title").value = one.title || "";
+    document.getElementById("edit-logo").value = one.logo_url || "";
+    document.getElementById("edit-guide").value = one.tvg_id || "";
+    document.getElementById("edit-language").value = one.language || "";
+    document.getElementById("edit-country").value = one.country || "";
+    document.getElementById("edit-adult").checked = Boolean(one.adult);
+    editorTags = (one.tags || []).map((tag) => ({ id: tag.id, name: tag.name }));
+  } else {
+    editorTags = [];
+  }
+  document.getElementById("editor").dataset.ids = ids.join(",");
+  drawEditorTags();
+  document.getElementById("editor").hidden = false;
+  document.getElementById(many ? "edit-language" : "edit-title").focus();
+}
+
+async function addEditorTag() {
+  const input = document.getElementById("edit-tag");
+  const name = input.value.trim();
+  if (!name) return;
+  let tag = knownTags.find((item) => item.name.toLowerCase() === name.toLowerCase());
+  if (!tag) {
+    const response = await fetch("/api/tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (response.status === 409) {
+      const listed = await fetch("/api/tags?include_adult=true");
+      knownTags = (await listed.json()).tags;
+      tag = knownTags.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    } else if (!response.ok) {
+      document.getElementById("editor-error").textContent = await errorText(response);
+      return;
+    } else {
+      tag = await response.json();
+      knownTags.push(tag);
+    }
+  }
+  if (tag && !editorTags.some((item) => item.id === tag.id)) editorTags.push({ id: tag.id, name: tag.name });
+  input.value = "";
+  drawEditorTags();
+}
+
+async function errorText(response) {
+  try {
+    const body = await response.json();
+    if (typeof body.detail === "string") return body.detail;
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+  }
+  return `request returned ${response.status}`;
+}
+
+async function saveEditor(event) {
+  event.preventDefault();
+  const ids = document.getElementById("editor").dataset.ids.split(",").filter(Boolean).map(Number);
+  const many = ids.length > 1;
+  const error = document.getElementById("editor-error");
+  error.textContent = "";
+  try {
+    if (many) {
+      const body = { ids, add_tag_ids: editorTags.map((tag) => tag.id) };
+      const language = document.getElementById("edit-language").value.trim();
+      const country = document.getElementById("edit-country").value.trim();
+      const adult = document.getElementById("edit-adult-bulk").value;
+      if (language) body.language = language;
+      if (country) body.country = country;
+      if (adult !== "") body.adult = adult === "1";
+      const response = await fetch("/api/channels/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(await errorText(response));
+    } else {
+      const channel = catalog.find((item) => item.id === ids[0]) || channels.find((item) => item.id === ids[0]);
+      const current = new Set((channel && channel.tags ? channel.tags : []).map((tag) => tag.id));
+      const next = new Set(editorTags.map((tag) => tag.id));
+      const response = await fetch(`/api/channels/${ids[0]}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: document.getElementById("edit-title").value.trim(),
+          logo_url: document.getElementById("edit-logo").value.trim(),
+          tvg_id: document.getElementById("edit-guide").value.trim(),
+          language: document.getElementById("edit-language").value.trim(),
+          country: document.getElementById("edit-country").value.trim(),
+          adult: document.getElementById("edit-adult").checked,
+          add_tag_ids: [...next].filter((id) => !current.has(id)),
+          remove_tag_ids: [...current].filter((id) => !next.has(id)),
+        }),
+      });
+      if (!response.ok) throw new Error(await errorText(response));
+    }
+    document.getElementById("editor").hidden = true;
+    selectedIds = new Set();
+    catalog = [];
+    await loadGuide();
+  } catch (err) {
+    error.textContent = err.message;
+  }
+}
+
 document.addEventListener("keydown", (event) => {
   const settingsOpen = !document.getElementById("settings").hidden;
   const importOpen = !document.getElementById("import").hidden;
+  const editorOpen = !document.getElementById("editor").hidden;
   if (event.key === "Escape") {
     document.getElementById("settings").hidden = true;
+    document.getElementById("editor").hidden = true;
     closeImport();
     document.documentElement.classList.remove("video-full");
     document.getElementById("back-guide").hidden = true;
     return;
   }
   if (event.target.closest("input, textarea, select")) return;
-  if (settingsOpen || importOpen) return;
+  if (settingsOpen || importOpen || editorOpen) return;
+  if (event.key === "e" || event.key === "E") {
+    openEditor();
+    return;
+  }
   if (event.key === "ArrowDown") {
     event.preventDefault();
     if (document.documentElement.classList.contains("video-full")) tuneRelative(1);
@@ -942,14 +1338,11 @@ async function addTuner() {
 }
 
 function progressText(playlist) {
-  if (playlist.status === "checking") {
-    const done = playlist.channel_count - playlist.pending;
-    return `Checking ${done} of ${playlist.channel_count}`;
-  }
+  const checked = Math.max(0, (playlist.channel_count || 0) - (playlist.pending || 0));
+  const counts = `${checked} checked, ${playlist.online || 0} online, ${playlist.offline || 0} offline`;
+  if (playlist.status === "checking") return `Checking ${checked} of ${playlist.channel_count}. ${counts}`;
   if (playlist.status === "empty") return "No channels";
-  if (playlist.status === "online") return "Online";
-  if (playlist.status === "offline") return "Offline";
-  return `${playlist.online} online, ${playlist.offline} offline`;
+  return counts;
 }
 
 function sourceRow(title, meta, actions) {
@@ -994,6 +1387,7 @@ async function refreshSources() {
       playlist.name,
       `${playlist.channel_count} channels · ${when} · ${progressText(playlist)}`,
       [
+        { label: "Check now", run: () => checkPlaylist(playlist.id) },
         { label: "Re-import", run: () => reimportPlaylist(playlist.id) },
         { label: "Delete", run: () => deletePlaylist(playlist.id) },
       ],
@@ -1011,6 +1405,16 @@ async function refreshSources() {
       ],
     ));
   });
+}
+
+async function checkPlaylist(id) {
+  const response = await fetch(`/api/playlists/${id}/verify`, { method: "POST" });
+  if (!response.ok) {
+    showImportError(await errorDetail(response));
+    return;
+  }
+  showImportError("");
+  await refreshSources();
 }
 
 async function reimportPlaylist(id) {

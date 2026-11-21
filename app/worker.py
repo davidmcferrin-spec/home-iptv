@@ -13,14 +13,19 @@ from app.verify import probe_url
 log = logging.getLogger(__name__)
 
 
+def _stored_int(conn, key: str, fallback: int, minimum: int) -> int:
+    raw = setting(conn, key) or ""
+    if not raw:
+        return fallback
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        log.warning("%s is not an integer: %s", key, raw)
+        return fallback
+
+
 def _interval(conn, cfg: Settings) -> int:
-    raw = setting(conn, "verify_interval_minutes")
-    if raw:
-        try:
-            return max(5, int(raw))
-        except ValueError:
-            log.warning("verify_interval_minutes is not an integer: %s", raw)
-    return cfg.verify_interval_minutes
+    return _stored_int(conn, "verify_interval_minutes", cfg.verify_interval_minutes, 5)
 
 
 def process_queue(database_path: str, concurrency: int, timeout_seconds: int) -> int:
@@ -94,6 +99,9 @@ def maintain(database_path: str, cfg: Settings) -> None:
     if added:
         log.info("queued %s channel checks", added)
     reimport_due(database_path)
+    from app.guide_data import refresh_due
+
+    refresh_due(database_path)
 
 
 def worker_loop(stop: threading.Event, cfg: Settings | None = None) -> None:
@@ -102,7 +110,13 @@ def worker_loop(stop: threading.Event, cfg: Settings | None = None) -> None:
     while not stop.is_set():
         try:
             maintain(cfg.database_path, cfg)
-            process_queue(cfg.database_path, cfg.verify_concurrency, cfg.verify_timeout_seconds)
+            conn = connect(cfg.database_path)
+            try:
+                concurrency = _stored_int(conn, "verify_concurrency", cfg.verify_concurrency, 1)
+                timeout = _stored_int(conn, "verify_timeout_seconds", cfg.verify_timeout_seconds, 3)
+            finally:
+                conn.close()
+            process_queue(cfg.database_path, concurrency, timeout)
         except sqlite3.Error as exc:
             log.warning("worker database error: %s", exc)
         stop.wait(2)

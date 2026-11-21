@@ -168,9 +168,38 @@ def init_db(path: str) -> None:
             """
         )
         _seed_settings(conn)
+        _ensure_column(conn, "playlists", "epg_url", "TEXT")
+        _ensure_column(conn, "channels", "logo_source", "TEXT")
+        _ensure_column(conn, "channels", "guide_source", "TEXT")
+        _ensure_column(conn, "channels", "guide_match_id", "TEXT")
+        _ensure_column(conn, "channels", "programme_source", "TEXT")
+        _ensure_column(conn, "channels", "title_source", "TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS epg_feeds (
+                id INTEGER PRIMARY KEY,
+                url TEXT NOT NULL UNIQUE,
+                country TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                builtin INTEGER NOT NULL DEFAULT 0,
+                last_fetched_at TEXT,
+                last_status TEXT,
+                last_matched INTEGER
+            )
+            """
+        )
+        from app.epg_feeds import ensure_builtin
+
+        ensure_builtin(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, name: str, declaration: str) -> None:
+    present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if name not in present:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
 
 
 def _seed_settings(conn: sqlite3.Connection) -> None:
@@ -180,6 +209,14 @@ def _seed_settings(conn: sqlite3.Connection) -> None:
         "emulated_friendly_name": "Home IPTV",
         "idle_timeout_seconds": "",
         "verify_interval_minutes": "",
+        "verify_concurrency": "",
+        "verify_timeout_seconds": "",
+        "public_http_base": "",
+        "public_webrtc_base": "",
+        "public_hls_base": "",
+        "webrtc_additional_host": "",
+        "guide_refreshed_at": "",
+        "playlist_group": "tag",
         "device_id": "",
     }
     for key, value in defaults.items():

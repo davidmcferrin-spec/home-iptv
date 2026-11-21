@@ -30,11 +30,7 @@
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/home-iptv/data" Mode="rw" Description="Uploaded playlists and stream logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/home-iptv/data</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id for config and data files" Type="Variable" Display="always" Required="true" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group id for config and data files" Type="Variable" Display="always" Required="true" Mask="false">100</Config>
-  <Config Name="Public HTTP base" Target="PUBLIC_HTTP_BASE" Default="http://127.0.0.1:9595" Mode="" Description="Base URL other LAN devices use to reach the guide and the emulated tuner" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:9595</Config>
-  <Config Name="Public WebRTC base" Target="PUBLIC_WEBRTC_BASE" Default="http://127.0.0.1:8889" Mode="" Description="Browser-reachable MediaMTX WebRTC origin" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8889</Config>
-  <Config Name="Public HLS base" Target="PUBLIC_HLS_BASE" Default="http://127.0.0.1:8888" Mode="" Description="Browser-reachable MediaMTX LL-HLS origin" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8888</Config>
-  <Config Name="WebRTC additional host" Target="WEBRTC_ADDITIONAL_HOST" Default="" Mode="" Description="LAN IP advertised to browsers for ICE" Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="Idle timeout" Target="IDLE_TIMEOUT_SECONDS" Default="60" Mode="" Description="Stop an upstream pull after this many seconds with no viewers" Type="Variable" Display="always" Required="false" Mask="false">60</Config>
+  <Config Name="Idle timeout" Target="IDLE_TIMEOUT_SECONDS" Default="60" Mode="" Description="Optional override. Settings in the guide is the normal place to change this." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="MediaMTX API" Target="MEDIAMTX_API" Default="http://127.0.0.1:9997" Mode="" Description="Control API of the MediaMTX container" Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:9997</Config>
   <Config Name="MediaMTX RTSP" Target="MEDIAMTX_RTSP" Default="rtsp://127.0.0.1:8554" Mode="" Description="RTSP publish target inside the stack" Type="Variable" Display="always" Required="true" Mask="false">rtsp://127.0.0.1:8554</Config>
 </Container>

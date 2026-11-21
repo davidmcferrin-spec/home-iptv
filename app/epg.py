@@ -1,6 +1,8 @@
+import gzip
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from pathlib import Path
 
 from app.db import stamp
 
@@ -99,3 +101,68 @@ def parse_xmltv(text: str) -> tuple[dict[str, list[str]], list[dict]]:
             }
         )
     return names, programmes
+
+
+def open_xmltv(path: Path):
+    raw = path.open("rb")
+    magic = raw.read(2)
+    raw.seek(0)
+    if magic == b"\x1f\x8b":
+        return gzip.GzipFile(fileobj=raw)
+    return raw
+
+
+def iter_xmltv(path: Path):
+    """Yield channel and programme events without keeping the document."""
+    stream = open_xmltv(path)
+    try:
+        try:
+            iterator = ET.iterparse(stream, events=("start", "end"))
+            _event, root = next(iterator)
+            for event, element in iterator:
+                if event != "end":
+                    continue
+                tag = _local(element.tag)
+                if tag == "channel":
+                    channel_id = element.get("id")
+                    display = []
+                    for child in list(element):
+                        if _local(child.tag) == "display-name" and child.text and child.text.strip():
+                            display.append(child.text.strip())
+                    if channel_id:
+                        yield ("channel", channel_id, display)
+                    element.clear()
+                    root.clear()
+                elif tag == "programme":
+                    channel_id = element.get("channel")
+                    start = element.get("start")
+                    stop = element.get("stop")
+                    title = _text(element, "title")
+                    if channel_id and start and stop and title:
+                        try:
+                            start_at = _parse_when(start)
+                            stop_at = _parse_when(stop)
+                        except EpgParseError:
+                            element.clear()
+                            root.clear()
+                            continue
+                        season, episode = _episode(element)
+                        yield (
+                            "programme",
+                            {
+                                "xmltv_id": channel_id,
+                                "start_at": start_at,
+                                "stop_at": stop_at,
+                                "title": title,
+                                "episode_title": _text(element, "sub-title"),
+                                "description": _text(element, "desc"),
+                                "season": season,
+                                "episode": episode,
+                            },
+                        )
+                    element.clear()
+                    root.clear()
+        except ET.ParseError as exc:
+            raise EpgParseError(f"invalid XMLTV: {exc}") from exc
+    finally:
+        stream.close()

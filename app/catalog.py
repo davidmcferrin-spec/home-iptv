@@ -83,9 +83,9 @@ def upsert_parsed_channel(
                 url, title, tvg_id, tvg_name, logo_url, group_title, guide_number, guide_sort,
                 language, language_source, country, country_source, adult, adult_source,
                 playlist_id, device_id, created_at, updated_at,
-                language_step, country_step
+                language_step, country_step, logo_source, guide_source
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'detected', ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'detected', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 channel.url,
@@ -107,6 +107,8 @@ def upsert_parsed_channel(
                 now,
                 found.language_step,
                 found.country_step,
+                "m3u" if channel.logo_url else None,
+                "m3u" if channel.tvg_id else None,
             ),
         )
         channel_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -142,24 +144,45 @@ def upsert_parsed_channel(
         adult_value = adult
         adult_source = "detected"
     number = guide_number or existing["guide_number"]
+    if existing["title_source"] == "manual":
+        title = existing["title"]
+    else:
+        title = channel.title
+    if existing["guide_source"] == "manual":
+        tvg_id = existing["tvg_id"]
+        guide_source = "manual"
+    else:
+        tvg_id = channel.tvg_id or existing["tvg_id"]
+        guide_source = existing["guide_source"] or ("m3u" if channel.tvg_id else None)
+    if existing["logo_source"] == "manual":
+        logo_url = existing["logo_url"]
+        logo_source = "manual"
+    elif channel.logo_url:
+        logo_url = channel.logo_url
+        logo_source = "m3u"
+    else:
+        logo_url = existing["logo_url"]
+        logo_source = existing["logo_source"]
     conn.execute(
         """
         UPDATE channels SET
-            title = ?, tvg_id = ?, tvg_name = ?, logo_url = ?, group_title = ?,
+            title = ?, title_source = ?, tvg_id = ?, tvg_name = ?, logo_url = ?, group_title = ?,
             guide_number = ?, guide_sort = ?,
             language = ?, language_source = ?, language_step = ?,
             country = ?, country_source = ?, country_step = ?,
             adult = ?, adult_source = ?,
             playlist_id = COALESCE(?, playlist_id),
             device_id = COALESCE(?, device_id),
+            logo_source = ?, guide_source = ?,
             updated_at = ?
         WHERE id = ?
         """,
         (
-            channel.title,
-            channel.tvg_id,
+            title,
+            existing["title_source"],
+            tvg_id,
             channel.tvg_name,
-            channel.logo_url,
+            logo_url,
             channel.group_title,
             number,
             guide_sort_key(number),
@@ -173,6 +196,8 @@ def upsert_parsed_channel(
             adult_source,
             playlist_id,
             device_id,
+            logo_source,
+            guide_source,
             now,
             existing["id"],
         ),
@@ -347,6 +372,7 @@ def channel_json(row: sqlite3.Row, tags: list[dict]) -> dict[str, Any]:
         "id": row["id"],
         "url": row["url"],
         "title": row["title"],
+        "title_source": row["title_source"],
         "tvg_id": row["tvg_id"],
         "tvg_name": row["tvg_name"],
         "logo_url": row["logo_url"],
@@ -368,6 +394,10 @@ def channel_json(row: sqlite3.Row, tags: list[dict]) -> dict[str, Any]:
         "audio_language": row["audio_language"],
         "bitrate": row["bitrate"],
         "tags": tags,
+        "logo_source": row["logo_source"],
+        "guide_source": row["guide_source"],
+        "guide_match_id": row["guide_match_id"],
+        "programme_source": row["programme_source"],
         "source": {"type": source_type, "id": row["device_id"] or row["playlist_id"]},
     }
 
@@ -493,6 +523,19 @@ def set_manual_fields(
     if "adult" in fields:
         assignments += ["adult = ?", "adult_source = 'manual'"]
         params.append(1 if fields["adult"] else 0)
+    if "title" in fields:
+        title = (fields["title"] or "").strip()
+        if not title:
+            raise ValueError("channel name is empty")
+        assignments += ["title = ?", "title_source = 'manual'"]
+        params.append(title)
+    if "logo_url" in fields:
+        assignments += ["logo_url = ?", "logo_source = 'manual'"]
+        params.append((fields["logo_url"] or "").strip() or None)
+    if "tvg_id" in fields:
+        tvg_id = (fields["tvg_id"] or "").strip() or None
+        assignments += ["tvg_id = ?", "guide_source = 'manual'", "guide_match_id = ?"]
+        params.extend([tvg_id, tvg_id])
     if "guide_number" in fields:
         number = (fields["guide_number"] or "").strip() or None
         assignments += ["guide_number = ?", "guide_sort = ?"]

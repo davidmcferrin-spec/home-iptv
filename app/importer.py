@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.catalog import upsert_parsed_channel
-from app.db import connect, utcnow
+from app.db import connect, set_setting, utcnow
 from app.playlist import MAX_PLAYLIST_BYTES, PlaylistParseError, parse_playlist
 
 log = logging.getLogger(__name__)
@@ -73,9 +73,10 @@ def import_playlist_text(database_path: str, playlist_id: int, text: str) -> dic
                 conn.execute("DELETE FROM channels WHERE id = ?", (row["id"],))
                 removed += 1
         conn.execute(
-            "UPDATE playlists SET last_imported_at = ? WHERE id = ?",
-            (utcnow(), playlist_id),
+            "UPDATE playlists SET last_imported_at = ?, epg_url = ? WHERE id = ?",
+            (utcnow(), parsed.epg_url, playlist_id),
         )
+        set_setting(conn, "guide_refreshed_at", "")
         conn.commit()
         return {
             "playlist_id": playlist_id,
