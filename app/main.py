@@ -34,6 +34,7 @@ def _advertise_when_ready(stop: threading.Event, hub: Hub) -> None:
             continue
         try:
             hub.advertise_host()
+            hub.apply_playback_profile()
         except MediaMTXError as exc:
             log.info("MediaMTX rejected the WebRTC host: %s", exc)
             stop.wait(1)

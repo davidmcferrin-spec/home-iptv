@@ -19,19 +19,20 @@
 </head>
 <body>
   <div id="shell">
+    <div id="dim" hidden></div>
+    <div id="frame">
     <div id="stage">
       <video id="video" autoplay playsinline muted></video>
       <div id="stage-bars" aria-hidden="true"></div>
       <div id="starting" hidden>Starting stream...</div>
       <div id="stage-chrome">
         <div id="stage-label">Live</div>
+        <button id="pip" type="button" hidden>PiP</button>
         <button id="expand" type="button">Full window</button>
         <button id="fullscreen" type="button">Fullscreen</button>
         <button id="sound" type="button">Sound</button>
       </div>
     </div>
-    <div id="dim" hidden></div>
-    <div id="frame">
     <header id="topbar">
       <div id="chip-bar">
         <div id="chips" role="tablist" aria-label="Filters"></div>
@@ -143,6 +144,14 @@
       <label>Starting channel
         <select id="set-start"></select>
       </label>
+      <h2>Playback</h2>
+      <label>Latency vs smoothness
+        <select id="set-playback-profile">
+          <option value="smooth">Smooth</option>
+          <option value="low">Low latency</option>
+        </select>
+      </label>
+      <p>Smooth waits a few seconds so public streams do not stutter. Low latency uses shorter HLS parts.</p>
       <h2>Server</h2>
       <label>Public HTTP base
         <input id="set-http-base" type="url" placeholder="Detected from the browser" autocomplete="off">

@@ -28,6 +28,13 @@ def test_server_settings_persist_and_detect_the_request_host(client):
     assert again["idle_timeout_seconds"] == 30
     assert again["hdhr_emulation"] is True
     assert again["effective_webrtc_host"] == "192.0.2.10"
+    assert again["playback_profile"] == "smooth"
+
+    profile = client.patch("/api/settings", json={"playback_profile": "low"})
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["playback_profile"] == "low"
+    rejected = client.patch("/api/settings", json={"playback_profile": "fast"})
+    assert rejected.status_code == 400
 
     bad = client.patch("/api/settings", json={"public_hls_base": "ftp://example.test/a"})
     assert bad.status_code == 400
