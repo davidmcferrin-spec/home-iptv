@@ -558,7 +558,23 @@ function move(deltaRow, deltaCol) {
   focus = { row, col };
   renderGuide();
   renderInfo();
-  document.querySelector(".program.focused")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  scrollFocusIntoView();
+}
+
+function scrollFocusIntoView() {
+  const scroller = document.getElementById("guide-scroll");
+  const node = document.querySelector(".program.focused");
+  if (!scroller || !node || getComputedStyle(scroller).display === "none") return;
+  const header = scroller.querySelector(".slot-head");
+  const headerHeight = header ? header.getBoundingClientRect().height : 0;
+  const nodeRect = node.getBoundingClientRect();
+  const box = scroller.getBoundingClientRect();
+  const topLimit = box.top + headerHeight + 2;
+  if (nodeRect.top < topLimit) scroller.scrollTop -= topLimit - nodeRect.top;
+  else if (nodeRect.bottom > box.bottom) scroller.scrollTop += nodeRect.bottom - box.bottom;
+  const after = node.getBoundingClientRect();
+  if (after.left < box.left) scroller.scrollLeft -= box.left - after.left;
+  else if (after.right > box.right) scroller.scrollLeft += after.right - box.right;
 }
 
 function toggleFavorite(id) {
