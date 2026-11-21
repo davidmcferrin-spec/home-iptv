@@ -58,7 +58,7 @@
     </section>
   </main>
   <div id="player" hidden>
-    <video id="player-video" controls playsinline></video>
+    <video id="player-video" controls playsinline webkit-playsinline></video>
     <div id="player-bar">
       <label>Audio
         <select id="player-audio"></select>
@@ -66,6 +66,7 @@
       <label>Subtitles
         <select id="player-subs"></select>
       </label>
+      <button id="player-full" type="button">Full screen</button>
       <button id="player-watched" type="button">Mark watched</button>
       <button id="player-close" type="button">Close</button>
     </div>
