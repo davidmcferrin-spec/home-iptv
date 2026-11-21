@@ -180,8 +180,72 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "channels", "org_logo_url", "TEXT")
         _ensure_column(conn, "channels", "hidden", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "channels", "notes", "TEXT")
-        conn.execute(
+        conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS media_libraries (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                rel_path TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                kind TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS media_items (
+                id INTEGER PRIMARY KEY,
+                library_id INTEGER NOT NULL REFERENCES media_libraries(id) ON DELETE CASCADE,
+                parent_id INTEGER REFERENCES media_items(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                sort_title TEXT NOT NULL,
+                year INTEGER,
+                season_number INTEGER,
+                episode_number INTEGER,
+                overview TEXT NOT NULL DEFAULT '',
+                poster_rel TEXT,
+                poster_file TEXT,
+                tmdb_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS media_items_parent ON media_items(parent_id);
+            CREATE INDEX IF NOT EXISTS media_items_library ON media_items(library_id, kind);
+
+            CREATE TABLE IF NOT EXISTS media_files (
+                id INTEGER PRIMARY KEY,
+                library_id INTEGER NOT NULL REFERENCES media_libraries(id) ON DELETE CASCADE,
+                item_id INTEGER REFERENCES media_items(id) ON DELETE SET NULL,
+                rel_path TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL,
+                duration REAL,
+                container TEXT,
+                video_codec TEXT,
+                width INTEGER,
+                height INTEGER,
+                audio_tracks TEXT NOT NULL DEFAULT '[]',
+                subtitle_tracks TEXT NOT NULL DEFAULT '[]',
+                scanned_at TEXT NOT NULL,
+                UNIQUE(library_id, rel_path)
+            );
+
+            CREATE TABLE IF NOT EXISTS media_progress (
+                file_id INTEGER PRIMARY KEY REFERENCES media_files(id) ON DELETE CASCADE,
+                position REAL NOT NULL,
+                duration REAL,
+                watched INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS media_scans (
+                library_id INTEGER PRIMARY KEY REFERENCES media_libraries(id) ON DELETE CASCADE,
+                state TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0,
+                total INTEGER NOT NULL DEFAULT 0,
+                message TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS epg_feeds (
                 id INTEGER PRIMARY KEY,
                 url TEXT NOT NULL UNIQUE,
