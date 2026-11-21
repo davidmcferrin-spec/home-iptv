@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -54,19 +55,20 @@ def refresh_guide(database_path: str, fetch=None) -> dict:
                 summary["missed"] += 1
                 continue
             summary["matched"] += 1
-            logo = None if row["logo_source"] == "manual" or row["logo_url"] else logo_for.get(found["id"])
+            logo = None if row["logo_source"] in {"manual", "m3u"} else logo_for.get(found["id"])
+            logo_url = None if logo is None else logo["url"]
             conn.execute(
                 """
                 UPDATE channels
                 SET tvg_id = COALESCE(tvg_id, ?),
                     guide_match_id = ?,
                     guide_source = 'iptv-org',
-                    logo_url = COALESCE(logo_url, ?),
-                    logo_source = CASE WHEN logo_url IS NULL AND ? IS NOT NULL THEN 'iptv-org' ELSE logo_source END,
+                    logo_url = CASE WHEN logo_source IN ('manual', 'm3u') OR ? IS NULL THEN logo_url ELSE ? END,
+                    logo_source = CASE WHEN logo_source IN ('manual', 'm3u') OR ? IS NULL THEN logo_source ELSE 'iptv-org' END,
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (found["id"], found["id"], None if logo is None else logo["url"], None if logo is None else logo["url"], utcnow(), row["id"]),
+                (found["id"], found["id"], logo_url, logo_url, logo_url, utcnow(), row["id"]),
             )
             if logo is not None:
                 summary["logos"] += 1
@@ -154,9 +156,9 @@ def _best_logos(logos: list[dict]) -> dict[str, dict]:
 
 
 def _logo_rank(logo: dict) -> tuple:
-    fmt = (logo.get("format") or "").upper()
-    usable = 1 if fmt in {"PNG", "JPEG", "WEBP", "GIF"} else 0
-    return (1 if logo.get("in_use") else 0, 0 if logo.get("feed") else 1, usable, int(logo.get("width") or 0))
+    path = urlsplit(logo.get("url") or "").path.lower()
+    image = 1 if path.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")) else 0
+    return (image, 1 if logo.get("in_use") else 0, 0 if logo.get("feed") else 1, int(logo.get("width") or 0))
 
 
 def _load_programmes(conn, getter, cache: Path, guides: list[dict]) -> int:
