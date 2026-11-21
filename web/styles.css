@@ -205,21 +205,64 @@ button:focus-visible,
 #more-panel input { width: 100%; margin-bottom: 8px; }
 #more-panel .chip { margin: 0 8px 8px 0; }
 
-#manager { padding: 16px; }
+html:has(body.channels-page),
+body.channels-page {
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+}
+#manager {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
 .manager-bar, #bulk-bar, .filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
+#manager-hint { margin: 0; color: var(--dim); }
+#channel-count { margin-left: auto; color: var(--dim); }
+#bulk-bar { padding: 8px; border-radius: 12px; background: rgba(76, 141, 255, 0.12); }
+#bulk-bar[hidden], #drawer[hidden], #empty-state[hidden] { display: none; }
 #manager input, #manager select, #manager textarea, #drawer input, #drawer select, #drawer textarea {
   min-height: 44px;
 }
-#table-wrap { overflow: auto; max-height: calc(100vh - 220px); }
-#channel-table { width: 100%; border-collapse: collapse; }
-#channel-table th, #channel-table td { text-align: left; padding: 6px; white-space: nowrap; }
-#channel-table input, #channel-table select { min-width: 72px; }
+#table-wrap {
+  flex: 1 1 auto;
+  min-height: 240px;
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+  border: 1px solid var(--cell-border);
+  border-radius: 12px;
+}
+#empty-state { margin: 0; padding: 28px 16px; color: var(--muted); }
+#channel-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+#channel-table th, #channel-table td { text-align: left; padding: 6px 8px; white-space: nowrap; }
+#channel-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #141820;
+}
+#channel-table tbody tr { cursor: pointer; }
+#channel-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+#channel-table input, #channel-table select {
+  min-width: 72px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+#channel-table input:hover, #channel-table input:focus,
+#channel-table select:hover, #channel-table select:focus {
+  background: #12141c;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.edit-row { display: inline-flex; align-items: center; gap: 6px; }
 #drawer {
   position: fixed;
   top: 0;
@@ -227,9 +270,16 @@ button:focus-visible,
   bottom: 0;
   width: min(420px, 100%);
   overflow: auto;
-  padding: 16px;
+  padding: 16px 16px 28px;
   background: #121820;
   z-index: 40;
+  box-shadow: var(--shadow);
+}
+#drawer section { margin: 18px 0; }
+#drawer h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+#drawer label { display: block; margin: 8px 0; }
+@media (max-width: 720px) {
+  #drawer { width: 100%; }
 }
 .filter-row input[type="text"] { width: auto; min-width: 160px; flex: 1; }
 .filter-note { color: var(--dim, #9aa3b2); }

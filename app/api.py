@@ -323,6 +323,45 @@ def list_channels(
         conn.close()
 
 
+@router.get("/api/channels/facets")
+def channel_facets(request: Request, include_adult: bool = True, include_hidden: bool = True) -> dict:
+    conn = _db(request)
+    try:
+        clauses = ["1 = 1"]
+        if not include_adult:
+            clauses.append("adult = 0")
+        if not include_hidden:
+            clauses.append("hidden = 0")
+        where = " AND ".join(clauses)
+        languages = [
+            row[0]
+            for row in conn.execute(
+                f"SELECT DISTINCT language FROM channels WHERE {where} AND language IS NOT NULL AND language != '' ORDER BY language"
+            )
+        ]
+        countries = [
+            row[0]
+            for row in conn.execute(
+                f"SELECT DISTINCT country FROM channels WHERE {where} AND country IS NOT NULL AND country != '' ORDER BY country"
+            )
+        ]
+        tags = [
+            row[0]
+            for row in conn.execute(
+                f"""
+                SELECT DISTINCT tags.name FROM tags
+                JOIN channel_tags ON channel_tags.tag_id = tags.id
+                JOIN channels ON channels.id = channel_tags.channel_id
+                WHERE {where}
+                ORDER BY tags.name COLLATE NOCASE
+                """
+            )
+        ]
+        return {"languages": languages, "countries": countries, "tags": tags}
+    finally:
+        conn.close()
+
+
 @router.get("/api/channels/{channel_id}")
 def get_channel(request: Request, channel_id: int, include_adult: bool = False) -> dict:
     conn = _db(request)
