@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
+<body class="channels-page">
   <div id="manager">
     <header class="manager-bar">
       <a class="chip" href="/">Guide</a>
@@ -31,12 +31,19 @@
         <option value="playlist">Playlist</option>
         <option value="hdhomerun">HDHomeRun</option>
       </select>
-      <input id="f-language" type="text" placeholder="Language" aria-label="Language" maxlength="16">
-      <input id="f-country" type="text" placeholder="Country" aria-label="Country" maxlength="2">
-      <input id="f-tag" type="text" placeholder="Tag" aria-label="Tag">
+      <select id="f-language" aria-label="Language">
+        <option value="">Any language</option>
+      </select>
+      <select id="f-country" aria-label="Country">
+        <option value="">Any country</option>
+      </select>
+      <select id="f-tag" aria-label="Tag">
+        <option value="">Any tag</option>
+      </select>
       <label class="check"><input id="f-adult" type="checkbox"> Adult</label>
+      <span id="channel-count"></span>
     </header>
-    <section id="filter-editor"></section>
+    <p id="manager-hint">Click a row or Edit. A cell saves when you leave it. The panel saves when you press Save.</p>
     <div id="bulk-bar" hidden>
       <span id="bulk-count"></span>
       <button id="bulk-verify" type="button">Re-verify</button>
@@ -53,10 +60,12 @@
       <button id="undo" type="button">Undo</button>
     </div>
     <div id="table-wrap">
+      <p id="empty-state" hidden>No channels yet. Add a playlist from the guide, then edit the channels here.</p>
       <table id="channel-table">
         <thead>
           <tr>
             <th></th>
+            <th>Edit</th>
             <th>Logo</th>
             <th>Number</th>
             <th>Name</th>
@@ -79,35 +88,52 @@
       <span id="page-label"></span>
       <button id="next-page" type="button">Next</button>
     </div>
+    <section id="filter-editor"></section>
   </div>
   <aside id="drawer" hidden>
     <form id="drawer-form">
-      <h2>Channel</h2>
-      <label>Name <input id="d-title" type="text" maxlength="200"></label>
-      <label>Number <input id="d-number" type="text" maxlength="16"></label>
-      <label>Logo URL <input id="d-logo" type="url"></label>
-      <img id="d-logo-preview" alt="" width="64" height="64">
-      <label>Guide match <input id="d-guide" type="text" list="guide-matches"></label>
-      <datalist id="guide-matches"></datalist>
-      <label>Tags <input id="d-tags" type="text"></label>
-      <label>Language <input id="d-language" type="text" maxlength="16"></label>
-      <label>Country <input id="d-country" type="text" maxlength="2"></label>
-      <label class="check"><input id="d-adult" type="checkbox"> Adult</label>
-      <label class="check"><input id="d-hidden" type="checkbox"> Hidden from the guide</label>
-      <label>Playback
-        <select id="d-playback">
-          <option value="auto">Auto</option>
-          <option value="webrtc">WebRTC</option>
-          <option value="hls">HLS</option>
-          <option value="transcode">Transcode</option>
-        </select>
-      </label>
-      <label>Notes <textarea id="d-notes" rows="3"></textarea></label>
-      <p id="d-probe"></p>
+      <h2 id="drawer-title">Edit channel</h2>
+      <section>
+        <h3>Basics</h3>
+        <label>Name <input id="d-title" type="text" maxlength="200"></label>
+        <label>Number <input id="d-number" type="text" maxlength="16"></label>
+        <label>Logo URL <input id="d-logo" type="url"></label>
+        <img id="d-logo-preview" alt="" width="64" height="64">
+        <label>Notes <textarea id="d-notes" rows="3"></textarea></label>
+        <label class="check"><input id="d-hidden" type="checkbox"> Hidden from the guide</label>
+      </section>
+      <section>
+        <h3>Guide data</h3>
+        <label>Guide match <input id="d-guide" type="text" list="guide-matches"></label>
+        <datalist id="guide-matches"></datalist>
+      </section>
+      <section>
+        <h3>Tags and classification</h3>
+        <label>Tags <input id="d-tags" type="text" placeholder="News, Local"></label>
+        <label>Language <input id="d-language" type="text" maxlength="16"></label>
+        <label>Country <input id="d-country" type="text" maxlength="2"></label>
+        <label class="check"><input id="d-adult" type="checkbox"> Adult</label>
+      </section>
+      <section>
+        <h3>Playback</h3>
+        <label>Mode
+          <select id="d-playback">
+            <option value="auto">Auto</option>
+            <option value="webrtc">WebRTC</option>
+            <option value="hls">HLS</option>
+            <option value="transcode">Transcode</option>
+          </select>
+        </label>
+      </section>
+      <section>
+        <h3>Source and status</h3>
+        <label>URL <input id="d-url" type="text" readonly></label>
+        <p id="d-probe"></p>
+      </section>
       <p id="d-error" role="alert"></p>
       <div class="settings-actions">
         <button type="submit">Save</button>
-        <button id="close-drawer" type="button">Close</button>
+        <button id="close-drawer" type="button">Cancel</button>
       </div>
     </form>
   </aside>

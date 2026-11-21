@@ -59,6 +59,7 @@ function draw() {
     });
     const cells = [
       pick,
+      editButton(channel),
       logo(channel),
       inputCell(channel, "guide_number", channel.guide_number || ""),
       inputCell(channel, "title", channel.title || ""),
@@ -78,8 +79,15 @@ function draw() {
       tr.appendChild(td);
     });
     tr.addEventListener("dblclick", () => openDrawer(channel));
+    tr.addEventListener("click", (event) => {
+      if (event.target.closest("input, select, button, a, label")) return;
+      openDrawer(channel);
+    });
     rows.appendChild(tr);
   });
+  document.getElementById("empty-state").hidden = total !== 0;
+  document.getElementById("channel-table").hidden = total === 0;
+  document.getElementById("channel-count").textContent = total === 1 ? "1 channel" : `${total} channels`;
   const start = total ? page * pageSize + 1 : 0;
   const end = Math.min(total, (page + 1) * pageSize);
   document.getElementById("page-label").textContent = `${start}–${end} of ${total}`;
@@ -117,6 +125,25 @@ function adultCell(channel) {
   input.setAttribute("aria-label", `Adult ${channel.title}`);
   input.addEventListener("change", () => saveField(channel, "adult", input.checked));
   return input;
+}
+
+function editButton(channel) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "edit-row";
+  button.setAttribute("aria-label", `Edit ${channel.title}`);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("fill", "currentColor");
+  path.setAttribute("d", "M4 16.5 L14.5 6 L18 9.5 L7.5 20 H4 Z M15.2 5.3 L16.7 3.8 L20.2 7.3 L18.7 8.8 Z");
+  svg.appendChild(path);
+  button.append(svg, document.createTextNode(" Edit"));
+  button.addEventListener("click", () => openDrawer(channel));
+  return button;
 }
 
 function playbackCell(channel) {
@@ -168,7 +195,9 @@ async function bulk(body) {
 function openDrawer(channel) {
   document.getElementById("drawer").hidden = false;
   document.getElementById("drawer").dataset.id = String(channel.id);
+  document.getElementById("drawer-title").textContent = `Edit ${channel.title || "channel"}`;
   document.getElementById("d-title").value = channel.title || "";
+  document.getElementById("d-url").value = channel.url || "";
   document.getElementById("d-number").value = channel.guide_number || "";
   document.getElementById("d-logo").value = channel.logo_url || "";
   document.getElementById("d-logo-preview").src = `/api/logo/${channel.id}`;
@@ -186,6 +215,7 @@ function openDrawer(channel) {
   document.getElementById("d-probe").textContent = probe;
   document.getElementById("d-error").textContent = "";
   fillMatches(channel.title || "");
+  document.getElementById("d-title").focus();
 }
 
 async function fillMatches(q) {
@@ -251,6 +281,7 @@ document.getElementById("drawer-form").addEventListener("submit", async (event) 
     return;
   }
   document.getElementById("drawer").hidden = true;
+  await loadFacets();
   await load();
 });
 
@@ -260,9 +291,13 @@ document.getElementById("drawer-form").addEventListener("submit", async (event) 
     load();
   });
 });
+let searchTimer = 0;
 document.getElementById("q").addEventListener("input", () => {
-  page = 0;
-  load();
+  window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(() => {
+    page = 0;
+    load();
+  }, 200);
 });
 document.getElementById("prev-page").addEventListener("click", () => {
   page = Math.max(0, page - 1);
@@ -290,8 +325,18 @@ document.getElementById("undo").addEventListener("click", async () => {
     await load();
   }
 });
-document.getElementById("close-drawer").addEventListener("click", () => {
+function closeDrawer() {
   document.getElementById("drawer").hidden = true;
+}
+
+document.getElementById("close-drawer").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (event) => {
+  if (document.getElementById("drawer").hidden) return;
+  if (event.key === "Escape") closeDrawer();
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    document.getElementById("drawer-form").requestSubmit();
+  }
 });
 
 rows.addEventListener("dragover", (event) => event.preventDefault());
@@ -321,12 +366,39 @@ rows.addEventListener("drop", async (event) => {
   await load();
 });
 
+function fillFacet(id, values, blank) {
+  const select = document.getElementById(id);
+  const current = select.value;
+  select.replaceChildren();
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = blank;
+  select.appendChild(first);
+  values.forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  });
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+async function loadFacets() {
+  const response = await fetch("/api/channels/facets?include_hidden=true&include_adult=true");
+  if (!response.ok) return;
+  const body = await response.json();
+  fillFacet("f-language", body.languages || [], "Any language");
+  fillFacet("f-country", body.countries || [], "Any country");
+  fillFacet("f-tag", body.tags || [], "Any tag");
+}
+
 renderFilterEditor(document.getElementById("filter-editor"));
+loadFacets().catch(() => {});
 load().catch((err) => {
   rows.innerHTML = "";
   const tr = document.createElement("tr");
   const td = document.createElement("td");
-  td.colSpan = 13;
+  td.colSpan = 14;
   td.textContent = err.message;
   tr.appendChild(td);
   rows.appendChild(tr);
