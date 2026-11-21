@@ -11,12 +11,24 @@
   <header class="library-bar">
     <a class="chip" href="/">Guide</a>
     <h1>Library</h1>
-    <a class="chip" href="/channels">Channels</a>
+    <input id="library-search" type="search" placeholder="Search" aria-label="Search the library">
+    <nav id="library-tabs">
+      <button type="button" data-kind="show" aria-selected="true">TV</button>
+      <button type="button" data-kind="movie">Movies</button>
+      <button type="button" data-kind="file">Misc</button>
+      <button type="button" data-kind="continue">Continue</button>
+    </nav>
+    <button id="open-library-settings" type="button">Settings</button>
   </header>
   <main id="library">
-    <section id="library-settings" class="library-card">
+    <p id="library-error" class="library-error" hidden></p>
+    <div id="poster-grid"></div>
+    <section id="show-page" hidden></section>
+    <aside id="details" hidden></aside>
+    <section id="library-settings" class="library-card" hidden>
       <h2>Settings</h2>
-      <p class="library-note">Libraries are folders under /media. Names and paths are stored in this app, not in an environment file.</p>
+      <p class="library-note">Libraries are folders under /media. Names, paths, and the TMDB key are stored in this app.</p>
+      <p id="accel-status" class="library-note"></p>
       <div id="suggestions"></div>
       <form id="library-form">
         <label>Name
@@ -43,13 +55,22 @@
         <button id="tmdb-clear" type="button">Clear</button>
         <span id="tmdb-state"></span>
       </form>
-      <p id="library-error" class="library-error" hidden></p>
-    </section>
-    <section id="library-browse" class="library-card">
-      <h2>Scanned</h2>
-      <ul id="item-list"></ul>
     </section>
   </main>
+  <div id="player" hidden>
+    <video id="player-video" controls playsinline></video>
+    <div id="player-bar">
+      <label>Audio
+        <select id="player-audio"></select>
+      </label>
+      <label>Subtitles
+        <select id="player-subs"></select>
+      </label>
+      <button id="player-watched" type="button">Mark watched</button>
+      <button id="player-close" type="button">Close</button>
+    </div>
+  </div>
+  <script src="/static/vendor/hls.min.js"></script>
   <script src="/static/library.js"></script>
 </body>
 </html>
