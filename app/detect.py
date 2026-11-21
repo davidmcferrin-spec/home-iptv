@@ -168,6 +168,9 @@ ADULT_PATTERNS = (
     re.compile(r"\bhentai\b", re.IGNORECASE),
     re.compile(r"18\+"),
     re.compile(r"\badults?\b", re.IGNORECASE),
+    re.compile(r"взросл", re.IGNORECASE),
+    re.compile(r"成人"),
+    re.compile(r"アダルト"),
 )
 ADULT_EXCEPTIONS = (re.compile(r"\badult swim\b", re.IGNORECASE),)
 

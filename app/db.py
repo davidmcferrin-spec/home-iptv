@@ -195,8 +195,11 @@ def init_db(path: str) -> None:
             """
         )
         from app.epg_feeds import ensure_builtin
+        from app.group_tags import migrate_group_tags, refresh_adult_flags
 
         ensure_builtin(conn)
+        migrate_group_tags(conn)
+        refresh_adult_flags(conn)
         conn.commit()
     finally:
         conn.close()

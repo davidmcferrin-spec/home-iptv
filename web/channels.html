@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Channels</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div id="manager">
+    <header class="manager-bar">
+      <a class="chip" href="/">Guide</a>
+      <h1>Channels</h1>
+      <input id="q" type="search" placeholder="Search name" aria-label="Search name">
+      <select id="f-status" aria-label="Verification status">
+        <option value="">Any status</option>
+        <option value="online">Online</option>
+        <option value="offline">Offline</option>
+        <option value="unknown">Unchecked</option>
+      </select>
+      <select id="f-playback" aria-label="Playback mode">
+        <option value="">Any playback</option>
+        <option value="auto">Auto</option>
+        <option value="webrtc">WebRTC</option>
+        <option value="hls">HLS</option>
+        <option value="transcode">Transcode</option>
+      </select>
+      <select id="f-source" aria-label="Source">
+        <option value="">Any source</option>
+        <option value="playlist">Playlist</option>
+        <option value="hdhomerun">HDHomeRun</option>
+      </select>
+      <input id="f-language" type="text" placeholder="Language" aria-label="Language" maxlength="16">
+      <input id="f-country" type="text" placeholder="Country" aria-label="Country" maxlength="2">
+      <input id="f-tag" type="text" placeholder="Tag" aria-label="Tag">
+      <label class="check"><input id="f-adult" type="checkbox"> Adult</label>
+    </header>
+    <section id="filter-editor"></section>
+    <div id="bulk-bar" hidden>
+      <span id="bulk-count"></span>
+      <button id="bulk-verify" type="button">Re-verify</button>
+      <button id="bulk-hide" type="button">Hide</button>
+      <button id="bulk-show" type="button">Show</button>
+      <select id="bulk-playback" aria-label="Bulk playback">
+        <option value="">Playback</option>
+        <option value="auto">Auto</option>
+        <option value="webrtc">WebRTC</option>
+        <option value="hls">HLS</option>
+        <option value="transcode">Transcode</option>
+      </select>
+      <button id="bulk-delete" type="button">Delete</button>
+      <button id="undo" type="button">Undo</button>
+    </div>
+    <div id="table-wrap">
+      <table id="channel-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Logo</th>
+            <th>Number</th>
+            <th>Name</th>
+            <th>Group</th>
+            <th>Tags</th>
+            <th>Language</th>
+            <th>Country</th>
+            <th>Adult</th>
+            <th>Status</th>
+            <th>Verified</th>
+            <th>EPG</th>
+            <th>Playback</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="manager-bar">
+      <button id="prev-page" type="button">Previous</button>
+      <span id="page-label"></span>
+      <button id="next-page" type="button">Next</button>
+    </div>
+  </div>
+  <aside id="drawer" hidden>
+    <form id="drawer-form">
+      <h2>Channel</h2>
+      <label>Name <input id="d-title" type="text" maxlength="200"></label>
+      <label>Number <input id="d-number" type="text" maxlength="16"></label>
+      <label>Logo URL <input id="d-logo" type="url"></label>
+      <img id="d-logo-preview" alt="" width="64" height="64">
+      <label>Guide match <input id="d-guide" type="text" list="guide-matches"></label>
+      <datalist id="guide-matches"></datalist>
+      <label>Tags <input id="d-tags" type="text"></label>
+      <label>Language <input id="d-language" type="text" maxlength="16"></label>
+      <label>Country <input id="d-country" type="text" maxlength="2"></label>
+      <label class="check"><input id="d-adult" type="checkbox"> Adult</label>
+      <label class="check"><input id="d-hidden" type="checkbox"> Hidden from the guide</label>
+      <label>Playback
+        <select id="d-playback">
+          <option value="auto">Auto</option>
+          <option value="webrtc">WebRTC</option>
+          <option value="hls">HLS</option>
+          <option value="transcode">Transcode</option>
+        </select>
+      </label>
+      <label>Notes <textarea id="d-notes" rows="3"></textarea></label>
+      <p id="d-probe"></p>
+      <p id="d-error" role="alert"></p>
+      <div class="settings-actions">
+        <button type="submit">Save</button>
+        <button id="close-drawer" type="button">Close</button>
+      </div>
+    </form>
+  </aside>
+  <script src="/static/filters.js"></script>
+  <script src="/static/channels.js"></script>
+</body>
+</html>

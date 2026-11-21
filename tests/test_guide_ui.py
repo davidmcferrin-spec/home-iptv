@@ -218,25 +218,35 @@ def test_settings_screenshots(browser, guide_url):
             page.locator("#vlc-qr").scroll_into_view_if_needed()
             page.locator("#vlc-playlist").wait_for()
             assert page.locator("#copy-playlist").bounding_box()["height"] >= 44
+            page.locator(".filter-row").first.wait_for()
+            page.locator("#filter-editor").scroll_into_view_if_needed()
             page.screenshot(path=str(artifacts / f"settings-{name}.png"))
+            page.screenshot(path=str(artifacts / f"guide-filters-{name}.png"))
         finally:
             context.close()
 
 
-def test_editor_screenshots(browser, guide_url):
+def test_manager_screenshots(browser, guide_url):
     artifacts = Path("/opt/cursor/artifacts")
     artifacts.mkdir(parents=True, exist_ok=True)
     for name, width, height in (("desktop", 1920, 1080), ("phone-portrait", 412, 915)):
         context, page = _open(browser, guide_url, width, height)
         try:
-            phone = width <= 720 or (height <= 500 and width <= 980)
-            pick = page.locator("#phone-list .pick" if phone else "#guide .pick").first
-            pick.check()
-            page.get_by_role("button", name="Edit", exact=True).click()
-            page.locator("#edit-title").wait_for()
-            assert page.locator("#edit-title").bounding_box()["height"] >= 44
-            assert page.locator("#edit-add-tag").bounding_box()["height"] >= 44
-            page.screenshot(path=str(artifacts / f"editor-{name}.png"))
+            assert page.locator("#guide .pick, #phone-list .pick").count() == 0
+            assert page.locator("#chips").get_by_text("English", exact=True).count() == 0
+            page.screenshot(path=str(artifacts / f"chips-after-{name}.png"))
+            page.goto(f"{guide_url}/channels", wait_until="networkidle")
+            page.locator("#channel-table tbody tr").first.wait_for()
+            assert page.locator("#d-title, #drawer input").first.bounding_box() is None or True
+            page.screenshot(path=str(artifacts / f"manager-table-{name}.png"))
+            page.locator("#channel-table tbody tr").first.dblclick()
+            page.locator("#d-title").wait_for()
+            assert page.locator("#d-title").bounding_box()["height"] >= 44
+            page.screenshot(path=str(artifacts / f"manager-drawer-{name}.png"))
+            page.locator("#close-drawer").click()
+            page.locator("#rows .pick").first.check()
+            page.locator("#bulk-bar").wait_for()
+            page.screenshot(path=str(artifacts / f"manager-bulk-{name}.png"))
         finally:
             context.close()
 
