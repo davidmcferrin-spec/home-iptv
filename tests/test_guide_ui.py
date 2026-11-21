@@ -146,17 +146,21 @@ def guide_url(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def browser():
+def playwright():
     playwright_sync = pytest.importorskip("playwright.sync_api")
     manager = playwright_sync.sync_playwright().start()
+    yield manager
+    manager.stop()
+
+
+@pytest.fixture(scope="module")
+def browser(playwright):
     try:
-        launched = manager.chromium.launch()
+        launched = playwright.chromium.launch()
     except Exception as exc:
-        manager.stop()
         pytest.skip(f"Chromium is not installed: {exc}")
     yield launched
     launched.close()
-    manager.stop()
 
 
 def _open(browser, url, width, height, storage=None):
@@ -341,6 +345,8 @@ def _upload_many(base: str, count: int = 320) -> None:
         files={"file": ("scroll.m3u", "\n".join(lines).encode(), "audio/mpegurl")},
         timeout=30,
     )
+    if uploaded.status_code == 409:
+        return
     assert uploaded.status_code == 201, uploaded.text
 
 
@@ -436,3 +442,140 @@ def test_guide_rows_scroll_inside_the_guide_box(browser, guide_url):
         page.screenshot(path=str(artifacts / "guide-scroll-phone.png"))
     finally:
         context.close()
+
+
+def _touch_context(browser, width, height, mobile=True):
+    return browser.new_context(
+        viewport={"width": width, "height": height},
+        has_touch=True,
+        is_mobile=mobile,
+        device_scale_factor=2 if mobile else 1,
+    )
+
+
+def _swipe(page, x, y, dy):
+    # Finger movement is dy. Chromium can send the touch. WebKit on Linux has no touch protocol, so the wheel stands in for the same scroller.
+    try:
+        session = page.context.new_cdp_session(page)
+    except Exception:
+        session = None
+    if session is not None:
+        session.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        for step in range(1, 13):
+            session.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y + dy * step / 12}]})
+        session.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        return
+    page.mouse.move(x, y)
+    page.mouse.wheel(0, -dy)
+
+
+def _touch_metrics(page, scroller_id):
+    return page.evaluate(
+        """(id) => {
+          const scroller = document.getElementById(id);
+          const shell = document.getElementById('shell').getBoundingClientRect();
+          const stage = document.getElementById('stage').getBoundingClientRect();
+          const style = getComputedStyle(scroller);
+          return {
+            scrollTop: scroller.scrollTop,
+            client: scroller.clientHeight,
+            scroll: scroller.scrollHeight,
+            pageScroll: document.scrollingElement.scrollTop,
+            overscroll: style.overscrollBehavior,
+            shell: Math.round(shell.height),
+            inner: window.innerHeight,
+            stageTop: Math.round(stage.top),
+          };
+        }""",
+        scroller_id,
+    )
+
+
+def _assert_touch_scroll(page, scroller_id, shot):
+    before = _touch_metrics(page, scroller_id)
+    assert before["scroll"] > before["client"] + 80, before
+    assert before["overscroll"] == "contain", before
+    declared = page.evaluate(
+        """async (id) => {
+          const css = await (await fetch('/static/styles.css')).text();
+          return css.includes('#' + id) && css.includes('-webkit-overflow-scrolling: touch');
+        }""",
+        scroller_id,
+    )
+    assert declared, scroller_id
+    assert abs(before["shell"] - before["inner"]) <= 2, before
+    assert before["pageScroll"] == 0
+    box = page.locator(f"#{scroller_id}").bounding_box()
+    point_x = box["x"] + min(80, box["width"] / 2)
+    point_y = box["y"] + box["height"] / 2
+    hit = page.evaluate(
+        """([x, y, id]) => {
+          const node = document.elementFromPoint(x, y);
+          const scroller = document.getElementById(id);
+          const stage = document.getElementById('stage');
+          return {inScroller: !!(node && scroller.contains(node)), inStage: !!(node && stage.contains(node))};
+        }""",
+        [point_x, point_y, scroller_id],
+    )
+    assert hit["inScroller"] and not hit["inStage"], hit
+    page.screenshot(path=str(shot).replace(".png", "-top.png"))
+    _swipe(page, point_x, point_y, -280)
+    page.wait_for_timeout(80)
+    moved = _touch_metrics(page, scroller_id)
+    page.wait_for_timeout(350)
+    settled = _touch_metrics(page, scroller_id)
+    assert moved["scrollTop"] > before["scrollTop"] + 40, moved
+    assert settled["scrollTop"] >= moved["scrollTop"]
+    assert settled["pageScroll"] == 0
+    assert settled["stageTop"] == before["stageTop"]
+    _swipe(page, point_x, box["y"] + 30, 220)
+    chained = _touch_metrics(page, scroller_id)
+    assert chained["pageScroll"] == 0
+    page.evaluate(
+        """(id) => { document.getElementById(id).scrollTop = document.getElementById(id).scrollHeight; }""",
+        scroller_id,
+    )
+    page.wait_for_timeout(100)
+    page.screenshot(path=str(shot))
+
+
+def test_guide_touch_scrolls_on_ipad_and_iphone(browser, guide_url):
+    artifacts = Path("/opt/cursor/artifacts")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    _upload_many(guide_url)
+    sizes = (("ipad-820x1180", 820, 1180, "guide-scroll"), ("ipad-1180x820", 1180, 820, "guide-scroll"), ("iphone-390x844", 390, 844, "phone-list"))
+    for name, width, height, scroller in sizes:
+        context = _touch_context(browser, width, height)
+        page = context.new_page()
+        try:
+            page.goto(guide_url, wait_until="networkidle")
+            page.locator(f"#{scroller}").wait_for()
+            row = ".phone-row" if scroller == "phone-list" else "#guide-scroll .channel-name"
+            page.locator(row).first.wait_for()
+            _assert_touch_scroll(page, scroller, artifacts / f"guide-touch-chromium-{name}.png")
+        finally:
+            context.close()
+
+
+def test_guide_touch_scrolls_in_webkit(playwright, guide_url):
+    try:
+        webkit = playwright.webkit.launch()
+    except Exception as exc:
+        pytest.skip(f"WebKit is not installed: {exc}")
+    try:
+        artifacts = Path("/opt/cursor/artifacts")
+        _upload_many(guide_url)
+        sizes = (("ipad-820x1180", 820, 1180, "guide-scroll"), ("ipad-1180x820", 1180, 820, "guide-scroll"), ("iphone-390x844", 390, 844, "phone-list"))
+        for name, width, height, scroller in sizes:
+            context = _touch_context(webkit, width, height, mobile=False)
+            page = context.new_page()
+            try:
+                page.goto(guide_url, wait_until="domcontentloaded")
+                page.locator(f"#{scroller}").wait_for()
+                row = ".phone-row" if scroller == "phone-list" else "#guide-scroll .channel-name"
+                page.locator(row).first.wait_for()
+                _assert_touch_scroll(page, scroller, artifacts / f"guide-touch-webkit-{name}.png")
+            finally:
+                context.close()
+    finally:
+        webkit.close()

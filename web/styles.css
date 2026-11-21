@@ -19,9 +19,11 @@
 html, body {
   margin: 0;
   height: 100%;
+  height: 100dvh;
   background: #05060a;
   color: var(--text);
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 button, select, input {
@@ -243,6 +245,7 @@ html.video-full #stats,
 #shell {
   position: relative;
   height: 100%;
+  height: 100dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -760,6 +763,7 @@ body.channels-page input[type="checkbox"]:indeterminate::after {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   border-radius: 14px;
   background: #0c0e14;
   touch-action: pan-x pan-y;
@@ -1015,6 +1019,7 @@ body.channels-page input[type="checkbox"]:indeterminate::after {
 #import-panel {
   width: min(720px, 100%);
   max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
   overflow: auto;
   padding: 22px;
   border-radius: 16px;
@@ -1069,6 +1074,7 @@ body.channels-page input[type="checkbox"]:indeterminate::after {
 #settings-form {
   width: min(560px, 100%);
   max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
   overflow: auto;
   padding: 22px;
   border-radius: 16px;
@@ -1112,7 +1118,7 @@ body.channels-page input[type="checkbox"]:indeterminate::after {
 
 .settings-actions { display: flex; gap: 8px; }
 
-html.is-phone, html.is-phone body { overflow: hidden; height: 100%; }
+html.is-phone, html.is-phone body { overflow: hidden; height: 100%; height: 100dvh; overscroll-behavior: none; }
 
 html.is-phone #frame {
   display: flex;
@@ -1141,6 +1147,7 @@ html.is-phone #preview { display: none; }
 
 html.is-phone #shell {
   height: 100%;
+  height: 100dvh;
   overflow: hidden;
   background: var(--bg);
 }
@@ -1170,6 +1177,9 @@ html.is-phone #phone-list {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 html.is-phone #guide-scroll { display: none; }
 html.is-phone.show-grid #phone-list { display: none; }
@@ -1209,6 +1219,7 @@ html.video-full #stage {
   max-width: none;
   max-height: none;
   height: 100vh;
+  height: 100dvh;
   margin: 0;
   border-radius: 0;
   aspect-ratio: auto;
@@ -1223,6 +1234,7 @@ html.is-phone.video-full #stage {
   max-width: none;
   max-height: none;
   height: 100vh;
+  height: 100dvh;
   margin: 0;
   aspect-ratio: auto;
   justify-self: stretch;
