@@ -20,7 +20,7 @@ services:
   app:
     image: ghcr.io/davidmcferrin-spec/home-iptv:latest
     ports:
-      - "${WEB_PORT:-8080}:8080"
+      - "${WEB_PORT:-9595}:8080"
       - "${HDHR_UDP_PORT:-65001}:65001/udp"
     environment:
       PUID: ${PUID:-99}
@@ -32,7 +32,7 @@ services:
       DATA_DIR: /data
       MEDIAMTX_API: http://mediamtx:9997
       MEDIAMTX_RTSP: rtsp://mediamtx:8554
-      PUBLIC_HTTP_BASE: ${PUBLIC_HTTP_BASE:-http://127.0.0.1:8080}
+      PUBLIC_HTTP_BASE: ${PUBLIC_HTTP_BASE:-http://127.0.0.1:9595}
       PUBLIC_WEBRTC_BASE: ${PUBLIC_WEBRTC_BASE:-http://127.0.0.1:8889}
       PUBLIC_HLS_BASE: ${PUBLIC_HLS_BASE:-http://127.0.0.1:8888}
       WEBRTC_ADDITIONAL_HOST: ${WEBRTC_ADDITIONAL_HOST:-}
