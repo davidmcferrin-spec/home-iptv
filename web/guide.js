@@ -624,7 +624,7 @@ async function playWhep(url) {
     video.srcObject = event.streams[0];
     stage.classList.add("has-video");
     video.play().catch((err) => {
-      if (err.name !== "NotAllowedError") toast("The picture was blocked by the browser");
+      if (err.name === "NotAllowedError") toast("The picture was blocked by the browser");
     });
   };
   const offer = await connection.createOffer();
